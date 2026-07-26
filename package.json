@@ -1,0 +1,120 @@
+{
+  "name": "gitloupe",
+  "displayName": "GitLoupe",
+  "description": "A login-free, local-first Git explorer for VS Code",
+  "version": "0.1.0",
+  "publisher": "tetsuji16",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tetsuji16/GitLoupe.git"
+  },
+  "homepage": "https://github.com/tetsuji16/GitLoupe#readme",
+  "bugs": {
+    "url": "https://github.com/tetsuji16/GitLoupe/issues"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:gitloupe.openGraph",
+    "onCommand:gitloupe.openFileHistory",
+    "onView:gitloupe.graphView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitloupe.openGraph",
+        "title": "GitLoupe: Open Commit Graph",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitloupe.openFileHistory",
+        "title": "GitLoupe: Open Visual File History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitloupe.refresh",
+        "title": "GitLoupe: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "gitloupe.openFileHistory",
+          "when": "resourceScheme == file",
+          "group": "gitloupe@10"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitloupe.openGraph",
+          "when": "view == gitloupe.graphView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitloupe.refresh",
+          "when": "view == gitloupe.graphView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitloupe",
+          "title": "GitLoupe",
+          "icon": "resources/gitloupe.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitloupe": [
+        {
+          "id": "gitloupe.graphView",
+          "name": "Repository",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GitLoupe",
+      "properties": {
+        "gitloupe.graph.maxCommits": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 5000,
+          "description": "Maximum number of commits loaded into the graph."
+        },
+        "gitloupe.git.path": {
+          "type": "string",
+          "default": "git",
+          "description": "Path to the Git executable."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "package": "npm run check && npm test && npm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

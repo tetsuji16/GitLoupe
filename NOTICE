@@ -1,0 +1,8 @@
+GitLoupe is an independent project inspired by the workflows of GitLens.
+
+GitLens is Copyright (c) 2021-2026 Axosoft, LLC dba GitKraken and
+Copyright (c) 2016-2021 Eric Amodio. The non-"plus" portions of GitLens are
+licensed under the MIT License.
+
+No source code from GitLens' "plus" directories is included in GitLoupe.
+GitLoupe is not affiliated with, sponsored by, or endorsed by GitKraken.

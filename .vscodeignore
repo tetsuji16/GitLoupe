@@ -1,0 +1,9 @@
+.github/**
+.vscode/**
+.gitignore
+src/**
+test/**
+**/*.map
+tsconfig.json
+esbuild.mjs
+package-lock.json
