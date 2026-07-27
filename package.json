@@ -1,5 +1,5 @@
 {
-  "name": "gitloupe",
+  "name": "gitloupe-vscode",
   "displayName": "GitLoupe",
   "description": "A login-free, local-first Git explorer for VS Code",
   "version": "0.1.0",
