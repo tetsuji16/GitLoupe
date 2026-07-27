@@ -1,5 +1,9 @@
 # GitLoupe
 
+<p align="center">
+  <img src="resources/gitloupe.png" width="128" height="128" alt="GitLoupe icon">
+</p>
+
 GitLoupe is a local-first Git explorer for Visual Studio Code. It brings the
 most useful visual workflows commonly associated with paid Git tooling into a
 small MIT-licensed extension that never asks you to create an account.

@@ -7,3 +7,4 @@ test/**
 tsconfig.json
 esbuild.mjs
 package-lock.json
+resources/gitloupe-icon-source.png
