@@ -45,5 +45,13 @@ by the GitLens Pro License and is not suitable for an unrestricted OSS fork.
 GitLoupe therefore contains no source copied from GitLens' `plus` directories.
 See [NOTICE](NOTICE) for attribution.
 
+Features corresponding to functionality found in GitLens' `plus` directories
+are implemented in GitLoupe using a clean-room process. Contributors must work
+from publicly observable behavior, independently written requirements, and
+public Git documentation or APIs. They must not copy, translate, adapt, or use
+the implementation details of GitLens' `plus` source when creating those
+features. All resulting implementation and tests must be original GitLoupe
+work.
+
 GitLens is a trademark of GitKraken. GitLoupe is not affiliated with,
 sponsored by, or endorsed by GitKraken.
