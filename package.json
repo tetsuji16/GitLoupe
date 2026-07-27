@@ -3,6 +3,7 @@
   "displayName": "GitLoupe",
   "description": "A login-free, local-first Git explorer for VS Code",
   "version": "0.1.0",
+  "icon": "resources/gitloupe.png",
   "publisher": "tetsuji16",
   "license": "MIT",
   "repository": {
@@ -20,6 +21,18 @@
     "SCM Providers",
     "Visualization"
   ],
+  "keywords": [
+    "git",
+    "commit graph",
+    "file history",
+    "worktree",
+    "blame",
+    "local-first"
+  ],
+  "galleryBanner": {
+    "color": "#071839",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished",
     "onCommand:gitloupe.openGraph",
