@@ -101,6 +101,33 @@ export function parseWorktrees(output: string): Worktree[] {
   return worktrees;
 }
 
+export interface Stash {
+  index: number;
+  ref: string;
+  hash: string;
+  timestamp: number;
+  message: string;
+}
+
+export function parseStashes(output: string): Stash[] {
+  return output
+    .split('\n')
+    .map(record => record.trim())
+    .filter(Boolean)
+    .map(record => {
+      const fields = record.split(FIELD);
+      const ref = fields[2] ?? '';
+      const indexMatch = /^stash@\{(\d+)\}$/.exec(ref);
+      return {
+        index: indexMatch ? Number(indexMatch[1]) : -1,
+        ref,
+        hash: fields[0] ?? '',
+        timestamp: Number(fields[1] ?? 0),
+        message: fields.slice(3).join(FIELD)
+      };
+    });
+}
+
 function splitWords(value: string | undefined): string[] {
   return value?.trim() ? value.trim().split(/\s+/) : [];
 }

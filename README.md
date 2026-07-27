@@ -16,6 +16,7 @@ small MIT-licensed extension that never asks you to create an account.
 - Branch creation, checkout, and confirmed cherry-pick actions
 - Visual file history with additions/deletions over time
 - Worktree creation, opening, and safe removal
+- Stash listing, inspection, apply, pop, and drop from the Stashes view
 - Multi-root workspace support
 - Inline current-line blame with a configurable format
 - Status bar blame for the line under the cursor

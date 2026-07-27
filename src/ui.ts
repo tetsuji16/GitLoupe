@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CommitDetails, FileHistoryEntry, GitService, Repository, Worktree } from './git.js';
+import { CommitDetails, FileHistoryEntry, GitService, Repository, Stash, Worktree } from './git.js';
 
 type GraphMessage =
   | { type: 'ready' }
@@ -45,9 +45,13 @@ export class RepositoryViewProvider implements vscode.WebviewViewProvider {
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
-    view.webview.onDidReceiveMessage(message => {
+    view.webview.onDidReceiveMessage((message: { type?: string; root?: string; ref?: string }) => {
       if (message?.type === 'openGraph') void this.openGraph();
-      if (message?.type === 'refresh') void this.refresh();
+      else if (message?.type === 'refresh') void this.refresh();
+      else if (message?.type === 'stashView') void vscode.commands.executeCommand('gitloupe.openStash', { root: message.root, ref: message.ref });
+      else if (message?.type === 'stashPop') void vscode.commands.executeCommand('gitloupe.popStash', { root: message.root, ref: message.ref });
+      else if (message?.type === 'stashApply') void vscode.commands.executeCommand('gitloupe.applyStash', { root: message.root, ref: message.ref });
+      else if (message?.type === 'stashDrop') void vscode.commands.executeCommand('gitloupe.dropStash', { root: message.root, ref: message.ref });
     });
     void this.refresh();
   }
@@ -55,8 +59,18 @@ export class RepositoryViewProvider implements vscode.WebviewViewProvider {
   async refresh(): Promise<void> {
     if (!this.view) return;
     const repositories = await this.git.discoverRepositories();
+    const stashes = new Map<string, Stash[]>();
+    await Promise.all(
+      repositories.map(async repo => {
+        try {
+          stashes.set(repo.root, await this.git.listStashes(repo.root));
+        } catch {
+          stashes.set(repo.root, []);
+        }
+      })
+    );
     const nonce = createNonce();
-    this.view.webview.html = sidebarHtml(repositories, nonce);
+    this.view.webview.html = sidebarHtml(repositories, stashes, nonce);
   }
 }
 
@@ -551,15 +565,29 @@ function fileHistoryHtml(file: string, entries: FileHistoryEntry[], nonce: strin
 </html>`;
 }
 
-function sidebarHtml(repositories: Repository[], nonce: string): string {
-  const rows = repositories.length
+function sidebarHtml(repositories: Repository[], stashes: Map<string, Stash[]>, nonce: string): string {
+  const repoRows = repositories.length
     ? repositories.map(repo => `<div class="repo"><strong>${escapeHtml(repo.name)}</strong><span>${escapeHtml(repo.branch)}</span></div>`).join('')
     : '<p class="muted">No Git repositories found in this workspace.</p>';
+  const stashEntries = repositories.flatMap(repo =>
+    (stashes.get(repo.root) ?? []).map(stash => ({ ...stash, root: repo.root, repoName: repo.name }))
+  );
+  const stashSection = stashEntries.length
+    ? `<details open class="stashes"><summary>Stashes (${stashEntries.length})</summary>` +
+      stashEntries
+        .map(stash => {
+          const relative = stashRelative(stash.timestamp);
+          const encoded = escapeHtml(`${stash.root}|${stash.ref}`);
+          return `<div class="stash"><div class="stash-title" title="${escapeHtml(stash.ref)}">${escapeHtml(stash.ref)} · ${escapeHtml(stash.message)}</div><div class="stash-meta">${escapeHtml(stash.repoName)} · ${relative}</div><div class="stash-actions"><button data-view="${encoded}">View</button><button data-pop="${encoded}">Pop</button><button data-apply="${encoded}">Apply</button><button data-drop="${encoded}">Drop</button></div></div>`;
+        })
+        .join('') +
+      '</details>'
+    : '<details class="stashes"><summary>Stashes (0)</summary><div class="muted" style="padding:8px 2px">No stashes in this workspace.</div></details>';
   return `<!doctype html><html><head>
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-  <style nonce="${nonce}">${commonCss()}body{padding:10px}.repo{display:flex;justify-content:space-between;padding:8px 2px;border-bottom:1px solid var(--vscode-panel-border)}.repo span,.muted{color:var(--vscode-descriptionForeground)}button{width:100%;margin-top:10px}</style>
-  </head><body>${rows}<button id="open">Open Commit Graph</button><button id="refresh" class="secondary">Refresh</button>
-  <script nonce="${nonce}">const vscode=acquireVsCodeApi();document.getElementById('open').addEventListener('click',()=>vscode.postMessage({type:'openGraph'}));document.getElementById('refresh').addEventListener('click',()=>vscode.postMessage({type:'refresh'}));</script>
+  <style nonce="${nonce}">${commonCss()}body{padding:10px}.repo{display:flex;justify-content:space-between;padding:8px 2px;border-bottom:1px solid var(--vscode-panel-border)}.repo span,.muted{color:var(--vscode-descriptionForeground)}.stashes{margin-top:14px;border-top:1px solid var(--vscode-panel-border);padding-top:8px}.stashes summary{cursor:pointer;font-weight:600}.stash{padding:8px 2px;border-bottom:1px solid var(--vscode-panel-border)}.stash-title{font-weight:600;overflow-wrap:anywhere}.stash-meta{color:var(--vscode-descriptionForeground);font-size:11px;margin:2px 0 6px}.stash-actions{display:flex;flex-wrap:wrap;gap:4px}.stash-actions button{padding:3px 8px;font-size:11px}button.open{width:100%;margin-top:14px}</style>
+  </head><body>${repoRows}${stashSection}<button id="open" class="open">Open Commit Graph</button><button id="refresh" class="secondary">Refresh</button>
+  <script nonce="${nonce}">const vscode=acquireVsCodeApi();document.getElementById('open').addEventListener('click',()=>vscode.postMessage({type:'openGraph'}));document.getElementById('refresh').addEventListener('click',()=>vscode.postMessage({type:'refresh'}));document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashView',root:b.dataset.view.split('|')[0],ref:b.dataset.view.split('|')[1]})));document.querySelectorAll('[data-pop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashPop',root:b.dataset.pop.split('|')[0],ref:b.dataset.pop.split('|')[1]})));document.querySelectorAll('[data-apply]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashApply',root:b.dataset.apply.split('|')[0],ref:b.dataset.apply.split('|')[1]})));document.querySelectorAll('[data-drop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashDrop',root:b.dataset.drop.split('|')[0],ref:b.dataset.drop.split('|')[1]})));</script>
   </body></html>`;
 }
 
@@ -578,6 +606,16 @@ function commonCss(): string {
 
 function cleanRef(ref: string): string {
   return ref.replace(/^HEAD -> /, '').replace(/^tag: /, '').replace(/^origin\//, '');
+}
+
+function stashRelative(timestamp: number): string {
+  if (!timestamp) return 'unknown';
+  const seconds = Math.max(0, Date.now() / 1000 - timestamp);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)}d ago`;
+  return new Date(timestamp * 1000).toLocaleDateString();
 }
 
 function createNonce(): string {

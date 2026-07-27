@@ -72,6 +72,26 @@
       {
         "command": "gitloupe.toggleHeatmap",
         "title": "GitLoupe: Toggle Heatmap"
+      },
+      {
+        "command": "gitloupe.openStash",
+        "title": "GitLoupe: View Stash"
+      },
+      {
+        "command": "gitloupe.popStash",
+        "title": "GitLoupe: Pop Stash"
+      },
+      {
+        "command": "gitloupe.applyStash",
+        "title": "GitLoupe: Apply Stash"
+      },
+      {
+        "command": "gitloupe.dropStash",
+        "title": "GitLoupe: Drop Stash"
+      },
+      {
+        "command": "gitloupe.createStash",
+        "title": "GitLoupe: Stash Changes"
       }
     ],
     "menus": {

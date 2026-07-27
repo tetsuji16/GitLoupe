@@ -9,11 +9,13 @@ import {
   parseBlame,
   parseCommits,
   parseFileHistory,
+  parseStashes,
   parseWorktrees,
+  Stash,
   Worktree
 } from './parsers.js';
 
-export type { Commit, CommitDetails, FileHistoryEntry, Worktree } from './parsers.js';
+export type { Commit, CommitDetails, FileHistoryEntry, Stash, Worktree } from './parsers.js';
 
 export interface Repository {
   name: string;
@@ -195,6 +197,42 @@ export class GitService {
     await this.run(root, ['worktree', 'remove', destination]);
   }
 
+  async listStashes(root: string): Promise<Stash[]> {
+    const output = await this.run(root, [
+      'stash',
+      'list',
+      `--format=%H${FIELD}%at${FIELD}%gd${FIELD}%s`
+    ]);
+    return parseStashes(output);
+  }
+
+  async stashShow(root: string, ref: string): Promise<string> {
+    assertStashRef(ref);
+    return this.run(root, ['stash', 'show', '-p', ref]);
+  }
+
+  async stashDrop(root: string, ref: string): Promise<void> {
+    assertStashRef(ref);
+    await this.run(root, ['stash', 'drop', ref]);
+  }
+
+  async stashPop(root: string, ref: string): Promise<void> {
+    assertStashRef(ref);
+    await this.run(root, ['stash', 'pop', ref]);
+  }
+
+  async stashApply(root: string, ref: string): Promise<void> {
+    assertStashRef(ref);
+    await this.run(root, ['stash', 'apply', ref]);
+  }
+
+  async createStash(root: string, message?: string, paths?: string[]): Promise<void> {
+    const args = ['stash', 'push'];
+    if (message) args.push('-m', message);
+    if (paths && paths.length) args.push('--', ...paths.map(slash));
+    await this.run(root, args);
+  }
+
   async blame(root: string, relativePath: string, startLine: number, endLine: number): Promise<BlameLine[]> {
     const output = await this.run(root, [
       'blame',
@@ -235,6 +273,10 @@ function assertRef(value: string): void {
   if (!value || value.startsWith('-') || /[\0-\x20~^:?*[\]\\]/.test(value) || value.includes('..')) {
     throw new Error('Invalid Git reference.');
   }
+}
+
+function assertStashRef(value: string): void {
+  if (!/^stash@\{\d+\}$/.test(value)) throw new Error('Invalid stash reference.');
 }
 
 function slash(value: string): string {

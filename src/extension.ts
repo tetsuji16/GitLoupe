@@ -3,6 +3,9 @@ import { GitService } from './git.js';
 import { GitContentProvider, GraphPanel, RepositoryViewProvider, showFileHistory } from './ui.js';
 import { BlameController, BlameHoverProvider, BlameCodeLensProvider } from './blame.js';
 
+const errorMessageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export function activate(context: vscode.ExtensionContext): void {
   const git = new GitService();
   const graph = new GraphPanel(context.extensionUri, git);
@@ -31,7 +34,65 @@ export function activate(context: vscode.ExtensionContext): void {
       (args?: { hash?: string; root?: string }) => blame.copyHash(args)
     ),
     vscode.commands.registerCommand('gitloupe.toggleBlame', () => blame.toggleBlame()),
-    vscode.commands.registerCommand('gitloupe.toggleHeatmap', () => blame.toggleHeatmap())
+    vscode.commands.registerCommand('gitloupe.toggleHeatmap', () => blame.toggleHeatmap()),
+    vscode.commands.registerCommand('gitloupe.openStash', async (args?: { root?: string; ref?: string }) => {
+      if (!args?.root || !args.ref) return;
+      try {
+        const patch = await git.stashShow(args.root, args.ref);
+        const doc = await vscode.workspace.openTextDocument({ content: patch || 'No diff available.', language: 'diff' });
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch (error) {
+        void vscode.window.showErrorMessage(`GitLoupe: ${errorMessageOf(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('gitloupe.popStash', async (args?: { root?: string; ref?: string }) => {
+      if (!args?.root || !args.ref) return;
+      const answer = await vscode.window.showWarningMessage(`Pop ${args.ref}? This applies and removes the stash.`, { modal: true }, 'Pop');
+      if (answer !== 'Pop') return;
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Popping ${args.ref}…` }, () => git.stashPop(args.root!, args.ref!));
+      await repositoryView.refresh();
+    }),
+    vscode.commands.registerCommand('gitloupe.applyStash', async (args?: { root?: string; ref?: string }) => {
+      if (!args?.root || !args.ref) return;
+      const answer = await vscode.window.showWarningMessage(`Apply ${args.ref}?`, { modal: true }, 'Apply');
+      if (answer !== 'Apply') return;
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Applying ${args.ref}…` }, () => git.stashApply(args.root!, args.ref!));
+      await repositoryView.refresh();
+    }),
+    vscode.commands.registerCommand('gitloupe.dropStash', async (args?: { root?: string; ref?: string }) => {
+      if (!args?.root || !args.ref) return;
+      const answer = await vscode.window.showWarningMessage(`Drop ${args.ref}? This deletes the stash permanently.`, { modal: true }, 'Drop');
+      if (answer !== 'Drop') return;
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dropping ${args.ref}…` }, () => git.stashDrop(args.root!, args.ref!));
+      await repositoryView.refresh();
+    }),
+    vscode.commands.registerCommand('gitloupe.createStash', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        void vscode.window.showInformationMessage('GitLoupe: Open a file inside a Git repository first.');
+        return;
+      }
+      let repo;
+      try {
+        repo = await git.findRepository(editor.document.uri.fsPath);
+      } catch {
+        void vscode.window.showInformationMessage('GitLoupe: The active file is not in a Git repository.');
+        return;
+      }
+      const message = await vscode.window.showInputBox({
+        title: 'Stash changes',
+        prompt: 'Stash message (optional)',
+        value: `WIP on ${repo.branch}`
+      });
+      if (message === undefined) return;
+      try {
+        await git.createStash(repo.root, message.trim() || undefined);
+        await repositoryView.refresh();
+        void vscode.window.showInformationMessage('GitLoupe: Changes stashed.');
+      } catch (error) {
+        void vscode.window.showErrorMessage(`GitLoupe: ${errorMessageOf(error)}`);
+      }
+    })
   );
 
   const onEditor = (editor?: vscode.TextEditor) => void blame.track(editor);
