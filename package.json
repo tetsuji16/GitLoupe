@@ -1,6 +1,6 @@
 {
   "name": "gitloupe-vscode",
-  "displayName": "GitLoupe",
+  "displayName": "GitLoupe — Local Git Explorer",
   "description": "A login-free, local-first Git explorer for VS Code",
   "version": "0.1.0",
   "icon": "resources/gitloupe.png",
