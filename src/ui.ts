@@ -65,6 +65,7 @@ export class GraphPanel {
   private repositories: Repository[] = [];
   private selected?: Repository;
   private disposables: vscode.Disposable[] = [];
+  private pendingCommit?: string;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -108,6 +109,12 @@ export class GraphPanel {
 
   async refresh(): Promise<void> {
     if (this.panel) await this.load();
+  }
+
+  async revealCommit(root?: string, hash?: string): Promise<void> {
+    if (!root || !hash) return;
+    this.pendingCommit = hash;
+    await this.show(root);
   }
 
   private async handleMessage(message: GraphMessage): Promise<void> {
@@ -177,6 +184,11 @@ export class GraphPanel {
       });
     } finally {
       await this.send({ type: 'loading', value: false });
+      if (this.pendingCommit) {
+        const hash = this.pendingCommit;
+        this.pendingCommit = undefined;
+        await this.sendCommit(hash);
+      }
     }
   }
 

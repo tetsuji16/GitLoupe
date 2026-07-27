@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
+  BlameLine,
   Commit,
   CommitDetails,
   FileHistoryEntry,
+  parseBlame,
   parseCommits,
   parseFileHistory,
   parseWorktrees,
@@ -191,6 +193,24 @@ export class GitService {
 
   async removeWorktree(root: string, destination: string): Promise<void> {
     await this.run(root, ['worktree', 'remove', destination]);
+  }
+
+  async blame(root: string, relativePath: string, startLine: number, endLine: number): Promise<BlameLine[]> {
+    const output = await this.run(root, [
+      'blame',
+      '--porcelain',
+      '--date=unix',
+      '-L',
+      `${startLine},${endLine}`,
+      '--',
+      slash(relativePath)
+    ]);
+    return parseBlame(output);
+  }
+
+  async blameFile(root: string, relativePath: string): Promise<BlameLine[]> {
+    const output = await this.run(root, ['blame', '--porcelain', '--date=unix', '--', slash(relativePath)]);
+    return parseBlame(output);
   }
 }
 

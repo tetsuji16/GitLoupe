@@ -17,6 +17,11 @@ small MIT-licensed extension that never asks you to create an account.
 - Visual file history with additions/deletions over time
 - Worktree creation, opening, and safe removal
 - Multi-root workspace support
+- Inline current-line blame with a configurable format
+- Status bar blame for the line under the cursor
+- Hover blame with copy-hash and open-in-graph actions
+- Authorship CodeLens at the top of files and on document symbols
+- Recency heatmap in the overview ruler
 
 All repository data comes from your locally installed `git` executable.
 GitLoupe does not include analytics, cloud services, account code, or network
@@ -59,3 +64,8 @@ work.
 
 GitLens is a trademark of GitKraken. GitLoupe is not affiliated with,
 sponsored by, or endorsed by GitKraken.
+
+The authorship features — inline blame, status-bar blame, hover blame,
+authorship CodeLens, and the recency heatmap — are independent
+implementations of GitLens' free authorship workflows and do not rely on
+any GitLens source.

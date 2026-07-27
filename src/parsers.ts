@@ -108,3 +108,104 @@ function splitWords(value: string | undefined): string[] {
 function splitRefs(value: string | undefined): string[] {
   return value?.trim() ? value.split(',').map(ref => ref.trim()).filter(Boolean) : [];
 }
+
+export interface BlameLine {
+  line: number;
+  hash: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  summary: string;
+  uncommitted: boolean;
+}
+
+const UNCOMMITTED_HASH = '0000000000000000000000000000000000000000';
+
+export function parseBlame(output: string): BlameLine[] {
+  const lines = output.split(/\r?\n/);
+  const result: BlameLine[] = [];
+  const seen = new Map<string, { author: string; email: string; timestamp: number; summary: string }>();
+  let pending: {
+    hash: string;
+    finalStart: number;
+    count: number;
+    author: string;
+    email: string;
+    timestamp: number;
+    summary: string;
+  } | undefined;
+
+  const header = /^\(?([0-9a-f]{40})\)? (\d+) (\d+) (\d+)$/;
+  const flush = (): void => {
+    if (!pending) return;
+    const entry = pending;
+    if (entry.hash !== UNCOMMITTED_HASH) {
+      seen.set(entry.hash, {
+        author: entry.author,
+        email: entry.email,
+        timestamp: entry.timestamp,
+        summary: entry.summary
+      });
+    }
+    for (let offset = 0; offset < entry.count; offset++) {
+      result.push({
+        line: entry.finalStart + offset,
+        hash: entry.hash,
+        author: entry.author,
+        email: entry.email,
+        timestamp: entry.timestamp,
+        summary: entry.summary,
+        uncommitted: entry.hash === UNCOMMITTED_HASH
+      });
+    }
+    pending = undefined;
+  };
+
+  for (const raw of lines) {
+    const match = header.exec(raw);
+    if (match) {
+      flush();
+      const hash = match[1] ?? '';
+      const existing = seen.get(hash);
+      pending = {
+        hash,
+        finalStart: Number(match[3] ?? '0'),
+        count: Number(match[4] ?? '1'),
+        author: existing?.author ?? '',
+        email: existing?.email ?? '',
+        timestamp: existing?.timestamp ?? 0,
+        summary: existing?.summary ?? ''
+      };
+      continue;
+    }
+    if (!pending) continue;
+    if (raw.charCodeAt(0) === 9) continue; // content line (tab-prefixed) — not needed
+    const separator = raw.indexOf(' ');
+    if (separator === -1) continue;
+    const key = raw.slice(0, separator);
+    const value = raw.slice(separator + 1);
+    switch (key) {
+      case 'author':
+        pending.author = value;
+        break;
+      case 'author-mail':
+        pending.email = stripMail(value);
+        break;
+      case 'author-time':
+        pending.timestamp = Number(value);
+        break;
+      case 'summary':
+        pending.summary = value;
+        break;
+      default:
+        break;
+    }
+  }
+  flush();
+  return result;
+}
+
+function stripMail(value: string): string {
+  const trimmed = value.trim().replace(/^[<('"]+/, '').replace(/[>')"]+$/, '');
+  return trimmed || value.trim();
+}
