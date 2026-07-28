@@ -148,6 +148,31 @@ export class GitService {
     return (await this.run(root, ['rev-parse', '--short', 'HEAD'])).trim();
   }
 
+  async remoteUrl(root: string, remote = 'origin'): Promise<string> {
+    assertRef(remote);
+    return (await this.run(root, ['remote', 'get-url', remote])).trim();
+  }
+
+  async checkoutPullRequest(root: string, number: number, remote = 'origin'): Promise<void> {
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('Invalid pull request number.');
+    assertRef(remote);
+    const status = await this.status(root);
+    if (status.files.length) throw new Error('Commit or stash working changes before checking out a pull request.');
+    await this.fetchPullRequest(root, number, remote);
+    await this.run(root, ['checkout', '-b', `gitloupe/pr-${number}`, 'FETCH_HEAD']);
+    this.invalidate(root);
+  }
+
+  async fetchPullRequest(root: string, number: number, remote = 'origin', base?: string): Promise<string> {
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('Invalid pull request number.');
+    assertRef(remote);
+    if (base) assertRef(base);
+    const args = ['fetch', remote, `pull/${number}/head`];
+    if (base) args.push(`refs/heads/${base}:refs/remotes/${remote}/${base}`);
+    await this.run(root, args);
+    return (await this.run(root, ['rev-parse', 'FETCH_HEAD'])).trim();
+  }
+
   async graph(root: string, limit: number): Promise<Commit[]> {
     try {
       const output = await this.run(root, [

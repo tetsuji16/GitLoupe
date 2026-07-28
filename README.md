@@ -6,7 +6,8 @@
 
 GitLoupe is a local-first Git explorer for Visual Studio Code. It brings the
 most useful visual workflows commonly associated with paid Git tooling into a
-small MIT-licensed extension that never asks you to create an account.
+small MIT-licensed extension that does not require a GitLoupe or GitKraken
+account.
 
 ## Features
 
@@ -33,10 +34,16 @@ small MIT-licensed extension that never asks you to create an account.
 - Hover blame with copy-hash and open-in-graph actions
 - Authorship CodeLens at the top of files and on document symbols
 - Recency heatmap in the overview ruler
+- Optional provider-neutral Pull Request Launchpad with a GitHub adapter
+- Public PR discovery, native PR multi-diff, browser open, and safe checkout
 
-All repository data comes from your locally installed `git` executable.
-GitLoupe does not include analytics, cloud services, account code, or network
-requests. Git is launched with terminal credential prompts disabled.
+The Git core uses your locally installed `git` executable and performs no
+analytics or background cloud synchronization. Opening Launchpad explicitly
+queries GitHub for repositories whose `origin` points to GitHub. Public
+repositories work without authentication. Choosing **Connect GitHub** uses
+VS Code's built-in authentication session for private repositories and
+personalized categories; GitLoupe does not store the token. Git is launched
+with terminal credential prompts disabled.
 
 ## Run from source
 

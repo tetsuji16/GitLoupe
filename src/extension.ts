@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { GitService } from './git.js';
 import { GitContentProvider, GraphPanel, RepositoryViewProvider, showFileHistory } from './ui.js';
 import { BlameController, BlameHoverProvider, BlameCodeLensProvider } from './blame.js';
+import { LaunchpadPanel } from './launchpad.js';
 
 const errorMessageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -10,6 +11,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const git = new GitService();
   const graph = new GraphPanel(context.extensionUri, git);
   const repositoryView = new RepositoryViewProvider(context.extensionUri, git, () => graph.show());
+  const launchpad = new LaunchpadPanel(context.extensionUri, git, async () => {
+    await Promise.all([graph.refresh(), repositoryView.refresh()]);
+  });
   const blame = new BlameController(git, graph);
   const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,packed-refs,refs/**}');
   let refreshTimer: NodeJS.Timeout | undefined;
@@ -38,6 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('gitloupe.openRepositoryHistory', () =>
       showFileHistory(context.extensionUri, git, undefined, true)
     ),
+    vscode.commands.registerCommand('gitloupe.openLaunchpad', () => launchpad.show()),
     vscode.commands.registerCommand('gitloupe.refresh', async () => {
       await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),

@@ -22,6 +22,7 @@ type GraphMessage =
   | { type: 'checkout'; ref: string }
   | { type: 'switchBranch'; ref: string }
   | { type: 'fetch' }
+  | { type: 'launchpad' }
   | { type: 'createBranch'; hash: string }
   | { type: 'cherryPick'; hash: string }
   | { type: 'diffFile'; hash: string; parent?: string; file: string; oldFile?: string }
@@ -206,6 +207,9 @@ export class GraphPanel {
           break;
         case 'fetch':
           await this.fetch();
+          break;
+        case 'launchpad':
+          await vscode.commands.executeCommand('gitloupe.openLaunchpad');
           break;
         case 'createBranch':
           await this.createBranch(message.hash);

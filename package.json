@@ -38,6 +38,7 @@
     "onCommand:gitloupe.openGraph",
     "onCommand:gitloupe.openFileHistory",
     "onCommand:gitloupe.openRepositoryHistory",
+    "onCommand:gitloupe.openLaunchpad",
     "onView:gitloupe.graphView"
   ],
   "main": "./dist/extension.js",
@@ -57,6 +58,11 @@
         "command": "gitloupe.openRepositoryHistory",
         "title": "GitLoupe: Open Repository Visual History",
         "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "gitloupe.openLaunchpad",
+        "title": "GitLoupe: Open Pull Request Launchpad",
+        "icon": "$(git-pull-request)"
       },
       {
         "command": "gitloupe.refresh",

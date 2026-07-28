@@ -37,6 +37,9 @@ workflow gaps:
 - nested repository discovery
 - file, folder, and repository visual history with author lanes, time scale,
   magnitude bubbles, change bars, zooming, period filters, and author slicing
+- provider-neutral pull-request model with an optional GitHub REST adapter
+- Launchpad categories, public unauthenticated discovery, explicit VS Code
+  authentication, PR multi-diff, browser open, and guarded local checkout
 
 ## Adversarial findings
 
@@ -57,17 +60,17 @@ workflow gaps:
 - Worktrees had no working-change or ahead/behind indicators.
 - The narrow layout discarded important context instead of adapting columns.
 
-### Out of scope for this local-first increment
+### Still out of scope
 
-- provider-backed Launchpad and pull-request review
-- GitHub, GitLab, Bitbucket, Jira, and organization integrations
+- GitLab, Bitbucket, Jira, and organization integrations
+- inline review submission, checks, merge queues, and provider mutations
 - Cloud Patches and account-backed sharing
 - hosted AI explanations, code review, and commit composition
 - agent session monitoring
 
-These require separate product decisions because GitLoupe explicitly promises
-no account and no network dependency. They must not be represented as complete
-until a compatible local-first design exists.
+Provider access remains optional and user-initiated. The local Git core,
+Graph, comparison, rewriting, and Visual History do not require an account or
+provider network access.
 
 ## Remaining roadmap
 
@@ -80,8 +83,8 @@ until a compatible local-first design exists.
 6. Add multi-select file operations and staged/unstaged diff fidelity.
 7. Add repository watchers, request cancellation, and bounded caches so large
    repositories remain responsive.
-8. Define optional provider integration interfaces without weakening the
-   login-free local core.
+8. Add GitLab/Bitbucket adapters, check status, review submission, and merge
+   queue support without weakening the login-free local core.
 
 ## Acceptance gates
 
