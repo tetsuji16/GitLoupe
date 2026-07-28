@@ -1,4 +1,5 @@
 export type RebaseTodoAction = 'reword' | 'squash' | 'drop';
+export type RebaseReorderAction = 'moveParent' | 'moveHead';
 
 export function rewriteRebaseTodo(todo: string, action: RebaseTodoAction, target: string): string {
   return rewriteRebaseTodoMany(todo, action, [target]);
@@ -19,13 +20,32 @@ export function rewriteRebaseTodoMany(todo: string, action: RebaseTodoAction, ta
   return lines.join('\n');
 }
 
+export function reorderRebaseTodo(todo: string, action: RebaseReorderAction, target: string): string {
+  const lines = todo.split(/\r?\n/);
+  const index = lines.findIndex(line => {
+    const hash = /^pick\s+([0-9a-f]+)\s+/.exec(line)?.[1];
+    return Boolean(hash && (target.startsWith(hash) || hash.startsWith(target)));
+  });
+  if (index < 0) throw new Error('Target commit was not present in the rebase plan.');
+  const destination = action === 'moveParent' ? index - 1 : index + 1;
+  if (destination < 0 || destination >= lines.length || !/^pick\s/.test(lines[destination] ?? '')) {
+    throw new Error('The commit cannot move farther in that direction.');
+  }
+  [lines[index], lines[destination]] = [lines[destination]!, lines[index]!];
+  return lines.join('\n');
+}
+
 export const sequenceEditorSource = String.raw`
 const fs = require('node:fs');
 const rewriteRebaseTodoMany = ${rewriteRebaseTodoMany.toString()};
+const reorderRebaseTodo = ${reorderRebaseTodo.toString()};
 const file = process.argv[2];
 const action = process.env.GITLOUPE_REBASE_ACTION;
 const targets = JSON.parse(process.env.GITLOUPE_REBASE_TARGETS || '[]');
-fs.writeFileSync(file, rewriteRebaseTodoMany(fs.readFileSync(file, 'utf8'), action, targets));
+const todo = fs.readFileSync(file, 'utf8');
+fs.writeFileSync(file, action === 'moveParent' || action === 'moveHead'
+  ? reorderRebaseTodo(todo, action, targets[0])
+  : rewriteRebaseTodoMany(todo, action, targets));
 `;
 
 export const messageEditorSource = String.raw`

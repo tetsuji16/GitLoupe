@@ -33,7 +33,7 @@ export interface ComparisonDetails {
   files: CommitDetails['files'];
 }
 
-export type RewriteAction = 'reword' | 'squash' | 'drop';
+export type RewriteAction = 'reword' | 'squash' | 'drop' | 'moveParent' | 'moveHead';
 export const WORKING_TREE = ':working-tree';
 
 export interface Repository {
@@ -310,9 +310,24 @@ export class GitService {
       throw new Error('A commit message is required.');
     }
 
+    const firstParent = (action === 'moveParent' || action === 'moveHead')
+      ? (await this.run(root, ['rev-list', '--first-parent', 'HEAD'])).trim().split(/\r?\n/)
+      : [];
+    const position = firstParent.indexOf(hash);
+    if (action === 'moveParent' && (position < 0 || position + 1 >= firstParent.length)) {
+      throw new Error('This commit cannot move farther toward its parent.');
+    }
+    if (action === 'moveHead' && position <= 0) {
+      throw new Error('This commit cannot move farther toward HEAD.');
+    }
     const upstream = action === 'squash' ? details.parents[0] : hash;
     const upstreamDetails = action === 'squash' && upstream ? await this.commitDetails(root, upstream) : undefined;
-    const rebaseBase = action === 'squash' ? upstreamDetails?.parents[0] : details.parents[0];
+    const parentNeighbor = action === 'moveParent' ? await this.commitDetails(root, firstParent[position + 1]!) : undefined;
+    const rebaseBase = action === 'squash'
+      ? upstreamDetails?.parents[0]
+      : action === 'moveParent'
+        ? parentNeighbor?.parents[0]
+        : details.parents[0];
     await this.ensureLinearRange(root, rebaseBase);
     return this.executeRewritePlan(root, action, [hash], rebaseBase, message);
   }

@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   messageEditorSource,
   nodeScriptCommand,
+  reorderRebaseTodo,
   rewriteRebaseTodo,
   rewriteRebaseTodoMany,
   sequenceEditorSource
@@ -21,6 +22,8 @@ test('rewriteRebaseTodo applies reword, squash, and drop to an exact commit', ()
   const dropped = rewriteRebaseTodoMany(todo, 'drop', ['abc123000', '789abc000']);
   assert.match(dropped, /^drop abc123 first$/m);
   assert.match(dropped, /^drop 789abc third$/m);
+  assert.match(reorderRebaseTodo(todo, 'moveParent', 'def456000'), /pick def456 second\npick abc123 first/);
+  assert.match(reorderRebaseTodo(todo, 'moveHead', 'def456000'), /pick 789abc third\npick def456 second/);
 });
 
 test('sequence and message editors drive a real interactive rebase', () => {

@@ -370,10 +370,12 @@ export class GraphPanel {
     const labels: Record<RewriteAction, string> = {
       reword: 'Reword',
       squash: 'Squash into Parent',
-      drop: 'Drop'
+      drop: 'Drop',
+      moveParent: 'Move toward Parent',
+      moveHead: 'Move toward HEAD'
     };
     let message: string | undefined;
-    if (action !== 'drop') {
+    if (action === 'reword' || action === 'squash') {
       message = await vscode.window.showInputBox({
         title: labels[action],
         prompt: action === 'squash' ? 'Message for the combined commit' : 'New commit message',

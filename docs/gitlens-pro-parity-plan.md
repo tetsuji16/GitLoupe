@@ -27,7 +27,8 @@ workflow gaps:
   VS Code multi-diffs, including untracked files
 - cancellable deep searches with a bounded short-lived cache
 - debounced repository-state refresh for external Git changes
-- guarded reword, squash, and drop actions with automatic recovery branches
+- guarded reword, reorder, squash, and drop actions with automatic recovery
+  branches
 - paused-rebase continue and abort controls
 - graph minimap markers for HEAD, refs, merges, and search matches
 - Ctrl/Cmd and Shift commit multi-selection with endpoint compare, contiguous
@@ -76,7 +77,7 @@ provider network access.
 
 1. Add cancellation for full graph reloads and linked-worktree metadata watchers.
 2. Extend comparison to staged-only state and symmetric Working Tree bases.
-3. Extend history editing with reorder, fixup, safe merge, and branch rebase.
+3. Extend history editing with fixup, safe merge, and branch rebase.
 4. Add drag brushing and richer selection synchronization to Visual History.
 5. Extend the graph minimap with WIP markers, branch focus, and configurable
    columns.

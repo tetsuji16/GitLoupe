@@ -22,7 +22,7 @@ account.
 - Per-commit addition and deletion totals
 - Arbitrary commit/ref and Working Tree comparison with native multi-file diffs
 - Branch creation, checkout, and confirmed cherry-pick actions
-- Guarded reword, squash-into-parent, and drop actions with recovery branches
+- Guarded reword, reorder, squash, and drop actions with recovery branches
 - Paused-rebase conflict guidance with continue and abort controls
 - File, folder, and repository Visual History with author lanes and change bars
 - Visual History period/author slicing and adjustable timeline zoom
