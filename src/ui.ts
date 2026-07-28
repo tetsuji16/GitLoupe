@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction, Stash, Worktree } from './git.js';
+import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction, Stash, WORKING_TREE, Worktree } from './git.js';
 import { graphWorkbenchHtml } from './graphWebview.js';
 import { visualFileHistoryHtml } from './visualHistoryWebview.js';
 
@@ -13,6 +13,7 @@ type GraphMessage =
   | { type: 'search'; query: string; request: number }
   | { type: 'commit'; hash: string }
   | { type: 'compare'; hash: string; target: string }
+  | { type: 'compareAny'; base: string; target: string }
   | { type: 'multiDiff'; base: string; target: string }
   | { type: 'rewrite'; action: RewriteAction; hash: string; subject: string }
   | { type: 'rebaseContinue' }
@@ -23,7 +24,7 @@ type GraphMessage =
   | { type: 'createBranch'; hash: string }
   | { type: 'cherryPick'; hash: string }
   | { type: 'diffFile'; hash: string; parent?: string; file: string; oldFile?: string }
-  | { type: 'diffComparison'; base: string; target: string; file: string; oldFile?: string }
+  | { type: 'diffComparison'; base: string; target: string; status: string; file: string; oldFile?: string }
   | { type: 'workingDiff'; file: string }
   | { type: 'stage'; file: string }
   | { type: 'unstage'; file: string }
@@ -178,6 +179,9 @@ export class GraphPanel {
         case 'compare':
           await this.compare(message.hash, message.target);
           break;
+        case 'compareAny':
+          await this.compare(message.base, message.target);
+          break;
         case 'multiDiff':
           await this.openMultiDiff(message.base, message.target);
           break;
@@ -209,7 +213,7 @@ export class GraphPanel {
           await this.diffFile(message.hash, message.parent, message.file, message.oldFile);
           break;
         case 'diffComparison':
-          await this.diffComparison(message.base, message.target, message.file, message.oldFile);
+          await this.diffComparison(message.base, message.target, message.status, message.file, message.oldFile);
           break;
         case 'workingDiff':
           await this.workingDiff(message.file);
@@ -323,13 +327,13 @@ export class GraphPanel {
 
   private async compare(hash: string, target: string): Promise<void> {
     if (!this.selected) return;
-    const comparison = await this.git.compare(this.selected.root, hash, target);
+    const comparison = await this.git.compareAny(this.selected.root, hash, target);
     await this.send({ type: 'comparison', comparison });
   }
 
   private async openMultiDiff(base: string, target: string): Promise<void> {
     if (!this.selected) return;
-    const comparison = await this.git.compare(this.selected.root, base, target);
+    const comparison = await this.git.compareAny(this.selected.root, base, target);
     if (!comparison.files.length) {
       void vscode.window.showInformationMessage('GitLoupe: These revisions have no file changes.');
       return;
@@ -342,7 +346,9 @@ export class GraphPanel {
     const resources = comparison.files.map(file => [
       vscode.Uri.file(safeWorkingPath(this.selected!.root, file.path)),
       makeUri(base, file.oldPath ?? file.path),
-      makeUri(target, file.path)
+      target === WORKING_TREE && !file.status.startsWith('D')
+        ? vscode.Uri.file(safeWorkingPath(this.selected!.root, file.path))
+        : makeUri(target === WORKING_TREE ? ':empty' : target, file.path)
     ]);
     await vscode.commands.executeCommand(
       'vscode.changes',
@@ -487,7 +493,13 @@ export class GraphPanel {
     await vscode.commands.executeCommand('vscode.diff', left, vscode.Uri.file(absolute), `${file} (HEAD ↔ Working Tree)`);
   }
 
-  private async diffComparison(base: string, target: string, file: string, oldFile?: string): Promise<void> {
+  private async diffComparison(
+    base: string,
+    target: string,
+    status: string,
+    file: string,
+    oldFile?: string
+  ): Promise<void> {
     if (!this.selected) return;
     const makeUri = (revision: string, revisionFile: string) => vscode.Uri.from({
       scheme: 'gitloupe',
@@ -497,7 +509,9 @@ export class GraphPanel {
     await vscode.commands.executeCommand(
       'vscode.diff',
       makeUri(base, oldFile ?? file),
-      makeUri(target, file),
+      target === WORKING_TREE && !status.startsWith('D')
+        ? vscode.Uri.file(safeWorkingPath(this.selected.root, file))
+        : makeUri(target === WORKING_TREE ? ':empty' : target, file),
       `${file} (${base.slice(0, 8)} ↔ ${target})`
     );
   }

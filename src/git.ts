@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -8,6 +8,7 @@ import {
   BlameLine,
   Commit,
   CommitDetails,
+  countTextLines,
   FileHistoryEntry,
   parseBlame,
   parseCommits,
@@ -33,6 +34,7 @@ export interface ComparisonDetails {
 }
 
 export type RewriteAction = 'reword' | 'squash' | 'drop';
+export const WORKING_TREE = ':working-tree';
 
 export interface Repository {
   name: string;
@@ -235,13 +237,33 @@ export class GitService {
   }
 
   async compare(root: string, base: string, target: string): Promise<ComparisonDetails> {
-    assertRevision(base);
+    assertRevisionOrRef(base);
     assertRevisionOrRef(target);
     const [names, numstat] = await Promise.all([
       this.run(root, ['diff', '--name-status', '-M', base, target]),
       this.run(root, ['diff', '--numstat', base, target])
     ]);
     return { base, target, ...sumNumstat(numstat), files: parseNameStatus(names) };
+  }
+
+  async compareAny(root: string, base: string, target: string): Promise<ComparisonDetails> {
+    if (target !== WORKING_TREE) return this.compare(root, base, target);
+    assertRevisionOrRef(base);
+    const [names, numstat, status] = await Promise.all([
+      this.run(root, ['diff', '--name-status', '-M', base]),
+      this.run(root, ['diff', '--numstat', base]),
+      this.status(root)
+    ]);
+    const files = parseNameStatus(names);
+    const totals = sumNumstat(numstat);
+    for (const file of status.files.filter(item => item.untracked)) {
+      if (files.some(existing => existing.path === file.path)) continue;
+      files.push({ status: 'A', path: file.path });
+      const absolute = safeRepositoryPath(root, file.path);
+      const content = await readFile(absolute).catch(() => Buffer.alloc(0));
+      if (!content.includes(0)) totals.added += countTextLines(content.toString('utf8'));
+    }
+    return { base, target, ...totals, files };
   }
 
   async rewriteCommit(
@@ -518,4 +540,11 @@ function slash(value: string): string {
 
 function normalizeKey(value: string): string {
   return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
+function safeRepositoryPath(root: string, relative: string): string {
+  const absolute = path.resolve(root, relative);
+  const prefix = path.resolve(root) + path.sep;
+  if (!normalizeKey(absolute).startsWith(normalizeKey(prefix))) throw new Error('Path is outside the repository.');
+  return absolute;
 }

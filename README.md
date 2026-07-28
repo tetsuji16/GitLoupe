@@ -17,7 +17,7 @@ small MIT-licensed extension that never asks you to create an account.
 - Branch switching, upstream status, fetch, and per-worktree WIP indicators
 - Branches, remotes, tags, stashes, and worktrees alongside the graph
 - Per-commit addition and deletion totals
-- Commit inspection, commit-to-ref comparison, and native multi-file diffs
+- Arbitrary commit/ref and Working Tree comparison with native multi-file diffs
 - Branch creation, checkout, and confirmed cherry-pick actions
 - Guarded reword, squash-into-parent, and drop actions with recovery branches
 - Paused-rebase conflict guidance with continue and abort controls

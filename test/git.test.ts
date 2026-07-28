@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseCommits, parseFileHistory, parseStatus, parseWorktrees } from '../src/parsers.js';
+import { countTextLines, parseCommits, parseFileHistory, parseStatus, parseWorktrees } from '../src/parsers.js';
 import { parseGraphSearchQuery } from '../src/search.js';
 
 const record = '\x1e';
@@ -106,4 +106,10 @@ test('parseGraphSearchQuery ignores empty and unsafe values', () => {
     parseGraphSearchQuery('file: change:"" file:"bad\0path" CHANGE:needle'),
     { files: [], changes: ['needle'] }
   );
+});
+
+test('countTextLines matches Git numstat semantics for empty and terminated files', () => {
+  assert.equal(countTextLines(''), 0);
+  assert.equal(countTextLines('one\n'), 1);
+  assert.equal(countTextLines('one\r\ntwo'), 2);
 });

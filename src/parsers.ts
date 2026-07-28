@@ -98,6 +98,12 @@ export interface WorkingTreeStatus {
   files: WorkingFile[];
 }
 
+export function countTextLines(content: string): number {
+  if (!content) return 0;
+  const breaks = content.match(/\r\n|\r|\n/g)?.length ?? 0;
+  return breaks + (/[\r\n]$/.test(content) ? 0 : 1);
+}
+
 export function parseStatus(output: string): WorkingTreeStatus {
   const status: WorkingTreeStatus = { branch: '', ahead: 0, behind: 0, files: [] };
   const records = output.split(/\0|\r?\n/).filter(Boolean);
