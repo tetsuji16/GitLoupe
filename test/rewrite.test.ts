@@ -8,6 +8,7 @@ import {
   messageEditorSource,
   nodeScriptCommand,
   rewriteRebaseTodo,
+  rewriteRebaseTodoMany,
   sequenceEditorSource
 } from '../src/rewrite.js';
 
@@ -17,6 +18,9 @@ test('rewriteRebaseTodo applies reword, squash, and drop to an exact commit', ()
   assert.match(rewriteRebaseTodo(todo, 'squash', 'def4560000'), /^squash def456 second$/m);
   assert.match(rewriteRebaseTodo(todo, 'drop', 'def4560000'), /^drop def456 second$/m);
   assert.throws(() => rewriteRebaseTodo(todo, 'drop', 'eeeeee'), /not present/);
+  const dropped = rewriteRebaseTodoMany(todo, 'drop', ['abc123000', '789abc000']);
+  assert.match(dropped, /^drop abc123 first$/m);
+  assert.match(dropped, /^drop 789abc third$/m);
 });
 
 test('sequence and message editors drive a real interactive rebase', () => {
@@ -42,7 +46,7 @@ test('sequence and message editors drive a real interactive rebase', () => {
       GIT_SEQUENCE_EDITOR: nodeScriptCommand(sequence),
       GIT_EDITOR: nodeScriptCommand(editor),
       GITLOUPE_REBASE_ACTION: 'reword',
-      GITLOUPE_REBASE_TARGET: target,
+      GITLOUPE_REBASE_TARGETS: JSON.stringify([target]),
       GITLOUPE_REBASE_MESSAGE: 'renamed second'
     });
     assert.deepEqual(run(['log', '--format=%s']).split(/\r?\n/), ['third', 'renamed second', 'first']);

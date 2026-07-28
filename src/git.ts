@@ -283,6 +283,50 @@ export class GitService {
       throw new Error('A commit message is required.');
     }
 
+    const upstream = action === 'squash' ? details.parents[0] : hash;
+    const upstreamDetails = action === 'squash' && upstream ? await this.commitDetails(root, upstream) : undefined;
+    const rebaseBase = action === 'squash' ? upstreamDetails?.parents[0] : details.parents[0];
+    await this.ensureLinearRange(root, rebaseBase);
+    return this.executeRewritePlan(root, action, [hash], rebaseBase, message);
+  }
+
+  async rewriteCommits(
+    root: string,
+    action: 'squash' | 'drop',
+    hashes: string[],
+    message?: string
+  ): Promise<{ backup: string }> {
+    const unique = [...new Set(hashes)];
+    if (unique.length < 2) throw new Error('Select at least two commits.');
+    unique.forEach(assertRevision);
+    const status = await this.status(root);
+    if (status.files.length) throw new Error('Commit or stash working changes before rewriting history.');
+    const firstParent = (await this.run(root, ['rev-list', '--first-parent', 'HEAD'])).trim().split(/\r?\n/);
+    const positions = unique.map(hash => firstParent.indexOf(hash));
+    if (positions.some(index => index < 0)) throw new Error('Only first-parent commits on the current branch can be rewritten together.');
+    const ordered = unique
+      .map((hash, index) => ({ hash, position: positions[index]! }))
+      .sort((a, b) => a.position - b.position);
+    if (action === 'squash' && ordered.some((item, index) => index > 0 && item.position !== ordered[index - 1]!.position + 1)) {
+      throw new Error('Squash requires a contiguous first-parent commit range.');
+    }
+    const details = await Promise.all(ordered.map(item => this.commitDetails(root, item.hash)));
+    if (details.some(commit => commit.parents.length > 1)) throw new Error('Merge commits cannot be rewritten by this workflow.');
+    const oldest = details[details.length - 1]!;
+    const rebaseBase = oldest.parents[0];
+    await this.ensureLinearRange(root, rebaseBase);
+    if (action === 'squash' && !message?.trim()) throw new Error('A combined commit message is required.');
+    const targets = action === 'squash' ? ordered.slice(0, -1).map(item => item.hash) : ordered.map(item => item.hash);
+    return this.executeRewritePlan(root, action, targets, rebaseBase, message);
+  }
+
+  private async executeRewritePlan(
+    root: string,
+    action: RewriteAction,
+    targets: string[],
+    rebaseBase: string | undefined,
+    message?: string
+  ): Promise<{ backup: string }> {
     const backup = `gitloupe/backup-${Date.now()}`;
     await this.run(root, ['branch', backup, 'HEAD']);
     const temporary = await mkdtemp(path.join(tmpdir(), 'gitloupe-rebase-'));
@@ -290,9 +334,6 @@ export class GitService {
     const messageEditor = path.join(temporary, 'message-editor.cjs');
     await writeFile(sequenceEditor, sequenceEditorSource, 'utf8');
     await writeFile(messageEditor, messageEditorSource, 'utf8');
-    const upstream = action === 'squash' ? details.parents[0] : hash;
-    const upstreamDetails = action === 'squash' && upstream ? await this.commitDetails(root, upstream) : undefined;
-    const rebaseBase = action === 'squash' ? upstreamDetails?.parents[0] : details.parents[0];
     try {
       await this.run(
         root,
@@ -302,7 +343,7 @@ export class GitService {
           GIT_SEQUENCE_EDITOR: nodeScriptCommand(sequenceEditor),
           GIT_EDITOR: nodeScriptCommand(messageEditor),
           GITLOUPE_REBASE_ACTION: action,
-          GITLOUPE_REBASE_TARGET: hash,
+          GITLOUPE_REBASE_TARGETS: JSON.stringify(targets),
           GITLOUPE_REBASE_MESSAGE: message?.trim() ?? ''
         }
       );
@@ -488,6 +529,12 @@ export class GitService {
     } catch {
       throw new Error('Only commits on the current branch can be rewritten.');
     }
+  }
+
+  private async ensureLinearRange(root: string, base: string | undefined): Promise<void> {
+    const range = base ? `${base}..HEAD` : 'HEAD';
+    const merges = (await this.run(root, ['rev-list', '--merges', range])).trim();
+    if (merges) throw new Error('The rewrite range contains merge commits and cannot be safely flattened.');
   }
 }
 

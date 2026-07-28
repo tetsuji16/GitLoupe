@@ -11,6 +11,8 @@ small MIT-licensed extension that never asks you to create an account.
 ## Features
 
 - Interactive commit graph across all local refs
+- Graph minimap for HEAD, refs, merges, and search results
+- Ctrl/Cmd and Shift multi-selection with endpoint compare and bulk rewrites
 - GitLens-style Graph Workbench with working changes and commit details
 - Stage, unstage, commit, safely discard, and copy changes as patches
 - Prefixed commit, message, author, hash, ref, file, and changed-content search

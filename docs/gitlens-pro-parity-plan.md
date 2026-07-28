@@ -29,6 +29,9 @@ workflow gaps:
 - debounced repository-state refresh for external Git changes
 - guarded reword, squash, and drop actions with automatic recovery branches
 - paused-rebase continue and abort controls
+- graph minimap markers for HEAD, refs, merges, and search matches
+- Ctrl/Cmd and Shift commit multi-selection with endpoint compare, contiguous
+  squash, and arbitrary drop
 - keyboard row navigation
 - root-commit and renamed-file diff correctness
 - nested repository discovery
@@ -73,8 +76,8 @@ until a compatible local-first design exists.
 3. Extend history editing with reorder, fixup, safe merge, and branch rebase.
 4. Extend Visual File History from file scope to folder/repository scope and
    add richer hover and selection synchronization.
-5. Add graph minimap, HEAD/search/WIP scroll markers, branch focus, and
-   configurable columns.
+5. Extend the graph minimap with WIP markers, branch focus, and configurable
+   columns.
 6. Add multi-select file operations and staged/unstaged diff fidelity.
 7. Add repository watchers, request cancellation, and bounded caches so large
    repositories remain responsive.

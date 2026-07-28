@@ -16,6 +16,7 @@ type GraphMessage =
   | { type: 'compareAny'; base: string; target: string }
   | { type: 'multiDiff'; base: string; target: string }
   | { type: 'rewrite'; action: RewriteAction; hash: string; subject: string }
+  | { type: 'rewriteMany'; action: 'squash' | 'drop'; hashes: string[]; subject: string }
   | { type: 'rebaseContinue' }
   | { type: 'rebaseAbort' }
   | { type: 'checkout'; ref: string }
@@ -187,6 +188,9 @@ export class GraphPanel {
           break;
         case 'rewrite':
           await this.rewrite(message.action, message.hash, message.subject);
+          break;
+        case 'rewriteMany':
+          await this.rewriteMany(message.action, message.hashes, message.subject);
           break;
         case 'rebaseContinue':
           await this.finishRebase(false);
@@ -399,6 +403,47 @@ export class GraphPanel {
         );
         if (choice === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
         if (choice === 'Abort Rebase') await this.git.rebaseAbort(this.selected.root);
+      } else {
+        throw error;
+      }
+    }
+    await this.load();
+  }
+
+  private async rewriteMany(
+    action: 'squash' | 'drop',
+    hashes: string[],
+    subject: string
+  ): Promise<void> {
+    if (!this.selected || hashes.length < 2) return;
+    const label = action === 'squash' ? 'Squash Selected' : 'Drop Selected';
+    let message: string | undefined;
+    if (action === 'squash') {
+      message = await vscode.window.showInputBox({
+        title: label,
+        prompt: 'Message for the combined commit',
+        value: subject,
+        ignoreFocusOut: true,
+        validateInput: value => value.trim() ? undefined : 'Enter a commit message.'
+      });
+      if (message === undefined) return;
+    }
+    const answer = await vscode.window.showWarningMessage(
+      `${label} (${hashes.length} commits)?`,
+      {
+        modal: true,
+        detail: 'This rewrites the current branch. GitLoupe creates a gitloupe/backup-* recovery branch first.'
+      },
+      label
+    );
+    if (answer !== label) return;
+    try {
+      const result = await this.git.rewriteCommits(this.selected.root, action, hashes, message);
+      void vscode.window.showInformationMessage(`GitLoupe: History updated. Recovery branch: ${result.backup}`);
+    } catch (error) {
+      if (await this.git.rebaseState(this.selected.root)) {
+        void vscode.window.showErrorMessage(`GitLoupe: Rebase paused. Resolve conflicts in Source Control, then continue or abort. ${errorMessage(error)}`);
+        await vscode.commands.executeCommand('workbench.view.scm');
       } else {
         throw error;
       }
