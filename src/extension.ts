@@ -11,10 +11,23 @@ export function activate(context: vscode.ExtensionContext): void {
   const graph = new GraphPanel(context.extensionUri, git);
   const repositoryView = new RepositoryViewProvider(context.extensionUri, git, () => graph.show());
   const blame = new BlameController(git, graph);
+  const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,packed-refs,refs/**}');
+  let refreshTimer: NodeJS.Timeout | undefined;
+  const queueRepositoryRefresh = (): void => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined;
+      void Promise.all([graph.refresh(), repositoryView.refresh()]);
+    }, 350);
+  };
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('gitloupe', new GitContentProvider(git)),
     vscode.window.registerWebviewViewProvider(RepositoryViewProvider.viewType, repositoryView),
+    gitWatcher,
+    new vscode.Disposable(() => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+    }),
     blame,
     vscode.languages.registerHoverProvider({ scheme: 'file' }, new BlameHoverProvider(blame)),
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, new BlameCodeLensProvider(blame)),
@@ -50,21 +63,21 @@ export function activate(context: vscode.ExtensionContext): void {
       const answer = await vscode.window.showWarningMessage(`Pop ${args.ref}? This applies and removes the stash.`, { modal: true }, 'Pop');
       if (answer !== 'Pop') return;
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Popping ${args.ref}…` }, () => git.stashPop(args.root!, args.ref!));
-      await repositoryView.refresh();
+      await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),
     vscode.commands.registerCommand('gitloupe.applyStash', async (args?: { root?: string; ref?: string }) => {
       if (!args?.root || !args.ref) return;
       const answer = await vscode.window.showWarningMessage(`Apply ${args.ref}?`, { modal: true }, 'Apply');
       if (answer !== 'Apply') return;
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Applying ${args.ref}…` }, () => git.stashApply(args.root!, args.ref!));
-      await repositoryView.refresh();
+      await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),
     vscode.commands.registerCommand('gitloupe.dropStash', async (args?: { root?: string; ref?: string }) => {
       if (!args?.root || !args.ref) return;
       const answer = await vscode.window.showWarningMessage(`Drop ${args.ref}? This deletes the stash permanently.`, { modal: true }, 'Drop');
       if (answer !== 'Drop') return;
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dropping ${args.ref}…` }, () => git.stashDrop(args.root!, args.ref!));
-      await repositoryView.refresh();
+      await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),
     vscode.commands.registerCommand('gitloupe.createStash', async () => {
       const editor = vscode.window.activeTextEditor;
@@ -87,7 +100,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (message === undefined) return;
       try {
         await git.createStash(repo.root, message.trim() || undefined);
-        await repositoryView.refresh();
+        await Promise.all([graph.refresh(), repositoryView.refresh()]);
         void vscode.window.showInformationMessage('GitLoupe: Changes stashed.');
       } catch (error) {
         void vscode.window.showErrorMessage(`GitLoupe: ${errorMessageOf(error)}`);
@@ -97,6 +110,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const onEditor = (editor?: vscode.TextEditor) => void blame.track(editor);
   context.subscriptions.push(
+    gitWatcher.onDidChange(queueRepositoryRefresh),
+    gitWatcher.onDidCreate(queueRepositoryRefresh),
+    gitWatcher.onDidDelete(queueRepositoryRefresh),
     vscode.window.onDidChangeActiveTextEditor(onEditor),
     vscode.window.onDidChangeTextEditorSelection(event => blame.onSelection(event.textEditor)),
     vscode.workspace.onDidChangeConfiguration(event => {

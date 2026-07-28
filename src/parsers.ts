@@ -6,6 +6,8 @@ export interface Commit {
   timestamp: number;
   refs: string[];
   subject: string;
+  added: number;
+  deleted: number;
 }
 
 export interface CommitDetails extends Commit {
@@ -37,34 +39,9 @@ export function parseCommits(output: string): Commit[] {
     .map(record => record.trim())
     .filter(Boolean)
     .map(record => {
-      const fields = record.split(FIELD);
-      return {
-        hash: fields[0] ?? '',
-        parents: splitWords(fields[1]),
-        author: fields[2] ?? '',
-        email: fields[3] ?? '',
-        timestamp: Number(fields[4] ?? 0),
-        refs: splitRefs(fields[5]),
-        subject: fields.slice(6).join(FIELD)
-      };
-    });
-}
-
-export function parseFileHistory(output: string): FileHistoryEntry[] {
-  return output
-    .split(RECORD)
-    .map(record => record.trim())
-    .filter(Boolean)
-    .map(record => {
       const lines = record.split(/\r?\n/);
       const fields = (lines.shift() ?? '').split(FIELD);
-      let added = 0;
-      let deleted = 0;
-      for (const line of lines) {
-        const [a, d] = line.split('\t');
-        if (a !== '-') added += Number(a ?? 0);
-        if (d !== '-') deleted += Number(d ?? 0);
-      }
+      const { added, deleted } = sumNumstat(lines);
       return {
         hash: fields[0] ?? '',
         parents: splitWords(fields[1]),
@@ -77,6 +54,99 @@ export function parseFileHistory(output: string): FileHistoryEntry[] {
         deleted
       };
     });
+}
+
+export function parseFileHistory(output: string): FileHistoryEntry[] {
+  return output
+    .split(RECORD)
+    .map(record => record.trim())
+    .filter(Boolean)
+    .map(record => {
+      const lines = record.split(/\r?\n/);
+      const fields = (lines.shift() ?? '').split(FIELD);
+      const { added, deleted } = sumNumstat(lines);
+      return {
+        hash: fields[0] ?? '',
+        parents: splitWords(fields[1]),
+        author: fields[2] ?? '',
+        email: fields[3] ?? '',
+        timestamp: Number(fields[4] ?? 0),
+        refs: splitRefs(fields[5]),
+        subject: fields.slice(6).join(FIELD),
+        added,
+        deleted
+      };
+    });
+}
+
+export interface WorkingFile {
+  path: string;
+  oldPath?: string;
+  indexStatus: string;
+  worktreeStatus: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  conflicted: boolean;
+}
+
+export interface WorkingTreeStatus {
+  branch: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  files: WorkingFile[];
+}
+
+export function parseStatus(output: string): WorkingTreeStatus {
+  const status: WorkingTreeStatus = { branch: '', ahead: 0, behind: 0, files: [] };
+  const records = output.split(/\0|\r?\n/).filter(Boolean);
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index]!;
+    if (record.startsWith('# branch.head ')) {
+      status.branch = record.slice(14);
+      continue;
+    }
+    if (record.startsWith('# branch.upstream ')) {
+      status.upstream = record.slice(18);
+      continue;
+    }
+    if (record.startsWith('# branch.ab ')) {
+      const match = /\+(\d+) -(\d+)/.exec(record);
+      status.ahead = Number(match?.[1] ?? 0);
+      status.behind = Number(match?.[2] ?? 0);
+      continue;
+    }
+    if (record.startsWith('? ')) {
+      status.files.push({
+        path: record.slice(2),
+        indexStatus: '?',
+        worktreeStatus: '?',
+        staged: false,
+        unstaged: true,
+        untracked: true,
+        conflicted: false
+      });
+      continue;
+    }
+    if (!/^[12u] /.test(record)) continue;
+    const fields = record.split(' ');
+    const kind = fields[0]!;
+    const xy = fields[1] ?? '..';
+    const pathIndex = kind === '1' ? 8 : kind === '2' ? 9 : 10;
+    const file: WorkingFile = {
+      path: fields.slice(pathIndex).join(' '),
+      indexStatus: xy[0] ?? '.',
+      worktreeStatus: xy[1] ?? '.',
+      staged: (xy[0] ?? '.') !== '.',
+      unstaged: (xy[1] ?? '.') !== '.',
+      untracked: false,
+      conflicted: kind === 'u' || /[ADU][ADU]/.test(xy)
+    };
+    if (kind === '2') file.oldPath = records[++index];
+    status.files.push(file);
+  }
+  return status;
 }
 
 export function parseWorktrees(output: string): Worktree[] {
@@ -134,6 +204,17 @@ function splitWords(value: string | undefined): string[] {
 
 function splitRefs(value: string | undefined): string[] {
   return value?.trim() ? value.split(',').map(ref => ref.trim()).filter(Boolean) : [];
+}
+
+function sumNumstat(lines: string[]): { added: number; deleted: number } {
+  let added = 0;
+  let deleted = 0;
+  for (const line of lines) {
+    const [a, d] = line.split('\t');
+    if (a !== '-') added += Number(a ?? 0) || 0;
+    if (d !== '-') deleted += Number(d ?? 0) || 0;
+  }
+  return { added, deleted };
 }
 
 export interface BlameLine {

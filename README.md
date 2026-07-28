@@ -11,10 +11,15 @@ small MIT-licensed extension that never asks you to create an account.
 ## Features
 
 - Interactive commit graph across all local refs
-- Fast commit, author, hash, and ref filtering
-- Commit inspection with changed-file diffs
+- GitLens-style Graph Workbench with working changes and commit details
+- Stage, unstage, commit, safely discard, and copy changes as patches
+- Prefixed commit, message, author, hash, ref, file, and changed-content search
+- Branch switching, upstream status, fetch, and per-worktree WIP indicators
+- Branches, remotes, tags, stashes, and worktrees alongside the graph
+- Per-commit addition and deletion totals
+- Commit inspection, commit-to-ref comparison, and native multi-file diffs
 - Branch creation, checkout, and confirmed cherry-pick actions
-- Visual file history with additions/deletions over time
+- Visual file history with author swim lanes, timeline bubbles, and change bars
 - Worktree creation, opening, and safe removal
 - Stash listing, inspection, apply, pop, and drop from the Stashes view
 - Multi-root workspace support
@@ -70,3 +75,6 @@ The authorship features — inline blame, status-bar blame, hover blame,
 authorship CodeLens, and the recency heatmap — are independent
 implementations of GitLens' free authorship workflows and do not rely on
 any GitLens source.
+
+See [the GitLens Pro parity review and roadmap](docs/gitlens-pro-parity-plan.md)
+for the adversarial gap analysis, implemented scope, and remaining work.

@@ -9,13 +9,24 @@ import {
   parseBlame,
   parseCommits,
   parseFileHistory,
+  parseStatus,
   parseStashes,
   parseWorktrees,
   Stash,
+  WorkingTreeStatus,
   Worktree
 } from './parsers.js';
+import { parseGraphSearchQuery } from './search.js';
 
-export type { Commit, CommitDetails, FileHistoryEntry, Stash, Worktree } from './parsers.js';
+export type { Commit, CommitDetails, FileHistoryEntry, Stash, WorkingFile, WorkingTreeStatus, Worktree } from './parsers.js';
+
+export interface ComparisonDetails {
+  base: string;
+  target: string;
+  added: number;
+  deleted: number;
+  files: CommitDetails['files'];
+}
 
 export interface Repository {
   name: string;
@@ -39,12 +50,18 @@ export class GitError extends Error {
 }
 
 export class GitService {
+  private readonly searchCache = new Map<string, { expires: number; commits: Commit[] }>();
+
   private get executable(): string {
     return vscode.workspace.getConfiguration('gitloupe').get('git.path', 'git');
   }
 
-  async run(cwd: string, args: readonly string[]): Promise<string> {
+  async run(cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason ?? new Error('Git operation cancelled.'));
+        return;
+      }
       const child = spawn(this.executable, ['-c', 'color.ui=false', ...args], {
         cwd,
         windowsHide: true,
@@ -57,10 +74,19 @@ export class GitService {
       });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
+      const abort = (): void => {
+        child.kill();
+        reject(signal?.reason ?? new Error('Git operation cancelled.'));
+      };
+      signal?.addEventListener('abort', abort, { once: true });
       child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
       child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-      child.on('error', reject);
+      child.on('error', error => {
+        signal?.removeEventListener('abort', abort);
+        reject(error);
+      });
       child.on('close', code => {
+        signal?.removeEventListener('abort', abort);
         const output = Buffer.concat(stdout).toString('utf8');
         const error = Buffer.concat(stderr).toString('utf8').trim();
         if (code === 0) {
@@ -75,9 +101,16 @@ export class GitService {
   async discoverRepositories(): Promise<Repository[]> {
     const roots = vscode.workspace.workspaceFolders ?? [];
     const found = new Map<string, Repository>();
-    await Promise.all(roots.map(async folder => {
+    const nestedHeads = await vscode.workspace.findFiles('**/.git/HEAD', '**/node_modules/**', 100);
+    const worktreeMarkers = await vscode.workspace.findFiles('**/.git', '**/node_modules/**', 100);
+    const candidates = [
+      ...roots.map(folder => folder.uri.fsPath),
+      ...nestedHeads.map(uri => path.dirname(path.dirname(uri.fsPath))),
+      ...worktreeMarkers.map(uri => path.dirname(uri.fsPath))
+    ];
+    await Promise.all(candidates.map(async candidate => {
       try {
-        const root = (await this.run(folder.uri.fsPath, ['rev-parse', '--show-toplevel'])).trim();
+        const root = (await this.run(candidate, ['rev-parse', '--show-toplevel'])).trim();
         const branch = await this.currentBranch(root);
         found.set(normalizeKey(root), { name: path.basename(root), root, branch });
       } catch {
@@ -106,7 +139,8 @@ export class GitService {
         '--all',
         '--topo-order',
         `--max-count=${limit}`,
-        `--format=${RECORD}${COMMIT_FORMAT}`
+        `--format=${RECORD}${COMMIT_FORMAT}`,
+        '--numstat'
       ]);
       return parseCommits(output);
     } catch (error) {
@@ -115,6 +149,46 @@ export class GitService {
         return [];
       }
       throw error;
+    }
+  }
+
+  async searchGraph(root: string, query: string, limit: number, signal?: AbortSignal): Promise<Commit[]> {
+    const search = parseGraphSearchQuery(query);
+    if (!search.files.length && !search.changes.length) return this.graph(root, limit);
+    const cacheKey = `${normalizeKey(root)}\0${limit}\0${query}`;
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) return cached.commits;
+    const args = [
+      'log',
+      '--all',
+      '--topo-order',
+      `--max-count=${limit}`,
+      `--format=${RECORD}${COMMIT_FORMAT}`,
+      '--numstat',
+      ...search.changes.map(value => `-S${value}`)
+    ];
+    if (search.files.length) args.push('--', ...search.files.map(slash));
+    try {
+      const commits = parseCommits(await this.run(root, args, signal));
+      this.searchCache.set(cacheKey, { expires: Date.now() + 15_000, commits });
+      while (this.searchCache.size > 20) {
+        const oldest = this.searchCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.searchCache.delete(oldest);
+      }
+      return commits;
+    } catch (error) {
+      if (error instanceof GitError && /does not have any commits|bad revision|unknown revision/i.test(error.stderr)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  invalidate(root: string): void {
+    const prefix = `${normalizeKey(root)}\0`;
+    for (const key of this.searchCache.keys()) {
+      if (key.startsWith(prefix)) this.searchCache.delete(key);
     }
   }
 
@@ -128,7 +202,11 @@ export class GitService {
     ]);
     const fields = metadata.slice(metadata.indexOf(RECORD) + 1).trimEnd().split(FIELD);
     if (fields.length < 8) throw new Error('Could not parse commit metadata.');
-    const names = await this.run(root, ['diff-tree', '--root', '--no-commit-id', '--name-status', '-r', '-M', hash]);
+    const [names, numstat] = await Promise.all([
+      this.run(root, ['diff-tree', '--root', '--no-commit-id', '--name-status', '-r', '-M', hash]),
+      this.run(root, ['diff-tree', '--root', '--no-commit-id', '--numstat', '-r', hash])
+    ]);
+    const totals = sumNumstat(numstat);
     return {
       hash: fields[0] ?? '',
       parents: fields[1]?.trim() ? fields[1].trim().split(/\s+/) : [],
@@ -138,8 +216,20 @@ export class GitService {
       refs: splitRefs(fields[5]),
       subject: fields[6] ?? '',
       body: fields.slice(7).join(FIELD).trim(),
+      added: totals.added,
+      deleted: totals.deleted,
       files: parseNameStatus(names)
     };
+  }
+
+  async compare(root: string, base: string, target: string): Promise<ComparisonDetails> {
+    assertRevision(base);
+    assertRevisionOrRef(target);
+    const [names, numstat] = await Promise.all([
+      this.run(root, ['diff', '--name-status', '-M', base, target]),
+      this.run(root, ['diff', '--numstat', base, target])
+    ]);
+    return { base, target, ...sumNumstat(numstat), files: parseNameStatus(names) };
   }
 
   async fileHistory(root: string, absolutePath: string, limit = 300): Promise<FileHistoryEntry[]> {
@@ -160,13 +250,55 @@ export class GitService {
   }
 
   async fileAtRevision(root: string, hash: string, relativePath: string): Promise<string> {
-    assertRevision(hash);
+    assertRevisionOrRef(hash);
     return this.run(root, ['show', `${hash}:${slash(relativePath)}`]);
   }
 
   async checkout(root: string, ref: string): Promise<void> {
     assertRef(ref);
     await this.run(root, ['checkout', ref]);
+  }
+
+  async refs(root: string): Promise<{ branches: string[]; remotes: string[]; tags: string[] }> {
+    const read = async (prefix: string): Promise<string[]> => {
+      const output = await this.run(root, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', prefix]);
+      return output.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    };
+    const [branches, remotes, tags] = await Promise.all([
+      read('refs/heads'),
+      read('refs/remotes'),
+      read('refs/tags')
+    ]);
+    return { branches, remotes, tags };
+  }
+
+  async status(root: string): Promise<WorkingTreeStatus> {
+    return parseStatus(await this.run(root, ['status', '--porcelain=v2', '--branch', '-z']));
+  }
+
+  async fetch(root: string): Promise<void> {
+    await this.run(root, ['fetch', '--all', '--prune']);
+  }
+
+  async stage(root: string, relativePath: string): Promise<void> {
+    await this.run(root, ['add', '--', slash(relativePath)]);
+  }
+
+  async unstage(root: string, relativePath: string): Promise<void> {
+    await this.run(root, ['restore', '--staged', '--', slash(relativePath)]);
+  }
+
+  async discard(root: string, relativePath: string): Promise<void> {
+    await this.run(root, ['restore', '--worktree', '--', slash(relativePath)]);
+  }
+
+  async commit(root: string, message: string): Promise<void> {
+    if (!message.trim()) throw new Error('Commit message is required.');
+    await this.run(root, ['commit', '-m', message.trim()]);
+  }
+
+  async diffWorking(root: string, staged: boolean): Promise<string> {
+    return this.run(root, staged ? ['diff', '--cached', '--binary'] : ['diff', '--binary']);
   }
 
   async createBranch(root: string, name: string, start: string): Promise<void> {
@@ -265,8 +397,24 @@ function splitRefs(value: string | undefined): string[] {
   return value?.trim() ? value.split(',').map(ref => ref.trim()).filter(Boolean) : [];
 }
 
+function sumNumstat(output: string): { added: number; deleted: number } {
+  let added = 0;
+  let deleted = 0;
+  for (const line of output.split(/\r?\n/)) {
+    const [a, d] = line.split('\t');
+    if (a !== '-') added += Number(a ?? 0) || 0;
+    if (d !== '-') deleted += Number(d ?? 0) || 0;
+  }
+  return { added, deleted };
+}
+
 function assertRevision(value: string): void {
-  if (!/^[0-9a-fA-F]{4,64}$/.test(value)) throw new Error('Invalid Git revision.');
+  if (value !== 'HEAD' && !/^[0-9a-fA-F]{4,64}$/.test(value)) throw new Error('Invalid Git revision.');
+}
+
+function assertRevisionOrRef(value: string): void {
+  if (value === 'HEAD' || /^[0-9a-fA-F]{4,64}$/.test(value)) return;
+  assertRef(value);
 }
 
 function assertRef(value: string): void {
