@@ -2,7 +2,7 @@
   "name": "gitloupe-vscode",
   "displayName": "GitLoupe — Local Git Explorer",
   "description": "A login-free, local-first Git explorer for VS Code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icon": "resources/gitloupe.png",
   "publisher": "tetsuji16",
   "license": "MIT",
@@ -37,6 +37,8 @@
     "onStartupFinished",
     "onCommand:gitloupe.openGraph",
     "onCommand:gitloupe.openFileHistory",
+    "onCommand:gitloupe.openRepositoryHistory",
+    "onCommand:gitloupe.openLaunchpad",
     "onView:gitloupe.graphView"
   ],
   "main": "./dist/extension.js",
@@ -49,13 +51,59 @@
       },
       {
         "command": "gitloupe.openFileHistory",
-        "title": "GitLoupe: Open Visual File History",
+        "title": "GitLoupe: Open Visual History for File or Folder",
         "icon": "$(history)"
+      },
+      {
+        "command": "gitloupe.openRepositoryHistory",
+        "title": "GitLoupe: Open Repository Visual History",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "gitloupe.openLaunchpad",
+        "title": "GitLoupe: Open Pull Request Launchpad",
+        "icon": "$(git-pull-request)"
       },
       {
         "command": "gitloupe.refresh",
         "title": "GitLoupe: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "gitloupe.openCommit",
+        "title": "GitLoupe: Open Commit at Cursor"
+      },
+      {
+        "command": "gitloupe.copyHash",
+        "title": "GitLoupe: Copy Commit Hash"
+      },
+      {
+        "command": "gitloupe.toggleBlame",
+        "title": "GitLoupe: Toggle Line Blame"
+      },
+      {
+        "command": "gitloupe.toggleHeatmap",
+        "title": "GitLoupe: Toggle Heatmap"
+      },
+      {
+        "command": "gitloupe.openStash",
+        "title": "GitLoupe: View Stash"
+      },
+      {
+        "command": "gitloupe.popStash",
+        "title": "GitLoupe: Pop Stash"
+      },
+      {
+        "command": "gitloupe.applyStash",
+        "title": "GitLoupe: Apply Stash"
+      },
+      {
+        "command": "gitloupe.dropStash",
+        "title": "GitLoupe: Drop Stash"
+      },
+      {
+        "command": "gitloupe.createStash",
+        "title": "GitLoupe: Stash Changes"
       }
     ],
     "menus": {
@@ -111,6 +159,38 @@
           "type": "string",
           "default": "git",
           "description": "Path to the Git executable."
+        },
+        "gitloupe.blame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline current-line blame and the status-bar blame."
+        },
+        "gitloupe.blame.format": {
+          "type": "string",
+          "default": "${author}, ${date}",
+          "description": "Inline blame format. Tokens: ${author} ${email} ${date} ${commit} ${message}."
+        },
+        "gitloupe.blame.heatmap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Color the overview ruler by how recently each line changed."
+        },
+        "gitloupe.blame.heatmapMaxLines": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 100,
+          "maximum": 50000,
+          "description": "Skip the heatmap for files with more lines than this."
+        },
+        "gitloupe.blame.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show authorship CodeLens at the top of files and on document symbols."
+        },
+        "gitloupe.blame.codeLensSymbols": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include per-symbol authorship CodeLens using document symbols."
         }
       }
     }

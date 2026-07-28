@@ -6,6 +6,8 @@ export interface Commit {
   timestamp: number;
   refs: string[];
   subject: string;
+  added: number;
+  deleted: number;
 }
 
 export interface CommitDetails extends Commit {
@@ -37,34 +39,9 @@ export function parseCommits(output: string): Commit[] {
     .map(record => record.trim())
     .filter(Boolean)
     .map(record => {
-      const fields = record.split(FIELD);
-      return {
-        hash: fields[0] ?? '',
-        parents: splitWords(fields[1]),
-        author: fields[2] ?? '',
-        email: fields[3] ?? '',
-        timestamp: Number(fields[4] ?? 0),
-        refs: splitRefs(fields[5]),
-        subject: fields.slice(6).join(FIELD)
-      };
-    });
-}
-
-export function parseFileHistory(output: string): FileHistoryEntry[] {
-  return output
-    .split(RECORD)
-    .map(record => record.trim())
-    .filter(Boolean)
-    .map(record => {
       const lines = record.split(/\r?\n/);
       const fields = (lines.shift() ?? '').split(FIELD);
-      let added = 0;
-      let deleted = 0;
-      for (const line of lines) {
-        const [a, d] = line.split('\t');
-        if (a !== '-') added += Number(a ?? 0);
-        if (d !== '-') deleted += Number(d ?? 0);
-      }
+      const { added, deleted } = sumNumstat(lines);
       return {
         hash: fields[0] ?? '',
         parents: splitWords(fields[1]),
@@ -77,6 +54,105 @@ export function parseFileHistory(output: string): FileHistoryEntry[] {
         deleted
       };
     });
+}
+
+export function parseFileHistory(output: string): FileHistoryEntry[] {
+  return output
+    .split(RECORD)
+    .map(record => record.trim())
+    .filter(Boolean)
+    .map(record => {
+      const lines = record.split(/\r?\n/);
+      const fields = (lines.shift() ?? '').split(FIELD);
+      const { added, deleted } = sumNumstat(lines);
+      return {
+        hash: fields[0] ?? '',
+        parents: splitWords(fields[1]),
+        author: fields[2] ?? '',
+        email: fields[3] ?? '',
+        timestamp: Number(fields[4] ?? 0),
+        refs: splitRefs(fields[5]),
+        subject: fields.slice(6).join(FIELD),
+        added,
+        deleted
+      };
+    });
+}
+
+export interface WorkingFile {
+  path: string;
+  oldPath?: string;
+  indexStatus: string;
+  worktreeStatus: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  conflicted: boolean;
+}
+
+export interface WorkingTreeStatus {
+  branch: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  files: WorkingFile[];
+}
+
+export function countTextLines(content: string): number {
+  if (!content) return 0;
+  const breaks = content.match(/\r\n|\r|\n/g)?.length ?? 0;
+  return breaks + (/[\r\n]$/.test(content) ? 0 : 1);
+}
+
+export function parseStatus(output: string): WorkingTreeStatus {
+  const status: WorkingTreeStatus = { branch: '', ahead: 0, behind: 0, files: [] };
+  const records = output.split(/\0|\r?\n/).filter(Boolean);
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index]!;
+    if (record.startsWith('# branch.head ')) {
+      status.branch = record.slice(14);
+      continue;
+    }
+    if (record.startsWith('# branch.upstream ')) {
+      status.upstream = record.slice(18);
+      continue;
+    }
+    if (record.startsWith('# branch.ab ')) {
+      const match = /\+(\d+) -(\d+)/.exec(record);
+      status.ahead = Number(match?.[1] ?? 0);
+      status.behind = Number(match?.[2] ?? 0);
+      continue;
+    }
+    if (record.startsWith('? ')) {
+      status.files.push({
+        path: record.slice(2),
+        indexStatus: '?',
+        worktreeStatus: '?',
+        staged: false,
+        unstaged: true,
+        untracked: true,
+        conflicted: false
+      });
+      continue;
+    }
+    if (!/^[12u] /.test(record)) continue;
+    const fields = record.split(' ');
+    const kind = fields[0]!;
+    const xy = fields[1] ?? '..';
+    const pathIndex = kind === '1' ? 8 : kind === '2' ? 9 : 10;
+    const file: WorkingFile = {
+      path: fields.slice(pathIndex).join(' '),
+      indexStatus: xy[0] ?? '.',
+      worktreeStatus: xy[1] ?? '.',
+      staged: (xy[0] ?? '.') !== '.',
+      unstaged: (xy[1] ?? '.') !== '.',
+      untracked: false,
+      conflicted: kind === 'u' || /[ADU][ADU]/.test(xy)
+    };
+    if (kind === '2') file.oldPath = records[++index];
+    status.files.push(file);
+  }
+  return status;
 }
 
 export function parseWorktrees(output: string): Worktree[] {
@@ -101,10 +177,149 @@ export function parseWorktrees(output: string): Worktree[] {
   return worktrees;
 }
 
+export interface Stash {
+  index: number;
+  ref: string;
+  hash: string;
+  timestamp: number;
+  message: string;
+}
+
+export function parseStashes(output: string): Stash[] {
+  return output
+    .split('\n')
+    .map(record => record.trim())
+    .filter(Boolean)
+    .map(record => {
+      const fields = record.split(FIELD);
+      const ref = fields[2] ?? '';
+      const indexMatch = /^stash@\{(\d+)\}$/.exec(ref);
+      return {
+        index: indexMatch ? Number(indexMatch[1]) : -1,
+        ref,
+        hash: fields[0] ?? '',
+        timestamp: Number(fields[1] ?? 0),
+        message: fields.slice(3).join(FIELD)
+      };
+    });
+}
+
 function splitWords(value: string | undefined): string[] {
   return value?.trim() ? value.trim().split(/\s+/) : [];
 }
 
 function splitRefs(value: string | undefined): string[] {
   return value?.trim() ? value.split(',').map(ref => ref.trim()).filter(Boolean) : [];
+}
+
+function sumNumstat(lines: string[]): { added: number; deleted: number } {
+  let added = 0;
+  let deleted = 0;
+  for (const line of lines) {
+    const [a, d] = line.split('\t');
+    if (a !== '-') added += Number(a ?? 0) || 0;
+    if (d !== '-') deleted += Number(d ?? 0) || 0;
+  }
+  return { added, deleted };
+}
+
+export interface BlameLine {
+  line: number;
+  hash: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  summary: string;
+  uncommitted: boolean;
+}
+
+const UNCOMMITTED_HASH = '0000000000000000000000000000000000000000';
+
+export function parseBlame(output: string): BlameLine[] {
+  const lines = output.split(/\r?\n/);
+  const result: BlameLine[] = [];
+  const seen = new Map<string, { author: string; email: string; timestamp: number; summary: string }>();
+  let pending: {
+    hash: string;
+    finalStart: number;
+    count: number;
+    author: string;
+    email: string;
+    timestamp: number;
+    summary: string;
+  } | undefined;
+
+  const header = /^\(?([0-9a-f]{40})\)? (\d+) (\d+) (\d+)$/;
+  const flush = (): void => {
+    if (!pending) return;
+    const entry = pending;
+    if (entry.hash !== UNCOMMITTED_HASH) {
+      seen.set(entry.hash, {
+        author: entry.author,
+        email: entry.email,
+        timestamp: entry.timestamp,
+        summary: entry.summary
+      });
+    }
+    for (let offset = 0; offset < entry.count; offset++) {
+      result.push({
+        line: entry.finalStart + offset,
+        hash: entry.hash,
+        author: entry.author,
+        email: entry.email,
+        timestamp: entry.timestamp,
+        summary: entry.summary,
+        uncommitted: entry.hash === UNCOMMITTED_HASH
+      });
+    }
+    pending = undefined;
+  };
+
+  for (const raw of lines) {
+    const match = header.exec(raw);
+    if (match) {
+      flush();
+      const hash = match[1] ?? '';
+      const existing = seen.get(hash);
+      pending = {
+        hash,
+        finalStart: Number(match[3] ?? '0'),
+        count: Number(match[4] ?? '1'),
+        author: existing?.author ?? '',
+        email: existing?.email ?? '',
+        timestamp: existing?.timestamp ?? 0,
+        summary: existing?.summary ?? ''
+      };
+      continue;
+    }
+    if (!pending) continue;
+    if (raw.charCodeAt(0) === 9) continue; // content line (tab-prefixed) — not needed
+    const separator = raw.indexOf(' ');
+    if (separator === -1) continue;
+    const key = raw.slice(0, separator);
+    const value = raw.slice(separator + 1);
+    switch (key) {
+      case 'author':
+        pending.author = value;
+        break;
+      case 'author-mail':
+        pending.email = stripMail(value);
+        break;
+      case 'author-time':
+        pending.timestamp = Number(value);
+        break;
+      case 'summary':
+        pending.summary = value;
+        break;
+      default:
+        break;
+    }
+  }
+  flush();
+  return result;
+}
+
+function stripMail(value: string): string {
+  const trimmed = value.trim().replace(/^[<('"]+/, '').replace(/[>')"]+$/, '');
+  return trimmed || value.trim();
 }
