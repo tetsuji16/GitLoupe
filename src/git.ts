@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
@@ -17,6 +20,7 @@ import {
   Worktree
 } from './parsers.js';
 import { parseGraphSearchQuery } from './search.js';
+import { messageEditorSource, nodeScriptCommand, sequenceEditorSource } from './rewrite.js';
 
 export type { Commit, CommitDetails, FileHistoryEntry, Stash, WorkingFile, WorkingTreeStatus, Worktree } from './parsers.js';
 
@@ -27,6 +31,8 @@ export interface ComparisonDetails {
   deleted: number;
   files: CommitDetails['files'];
 }
+
+export type RewriteAction = 'reword' | 'squash' | 'drop';
 
 export interface Repository {
   name: string;
@@ -56,7 +62,12 @@ export class GitService {
     return vscode.workspace.getConfiguration('gitloupe').get('git.path', 'git');
   }
 
-  async run(cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
+  async run(
+    cwd: string,
+    args: readonly string[],
+    signal?: AbortSignal,
+    extraEnv?: NodeJS.ProcessEnv
+  ): Promise<string> {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
         reject(signal.reason ?? new Error('Git operation cancelled.'));
@@ -69,7 +80,8 @@ export class GitService {
         env: {
           ...process.env,
           GIT_TERMINAL_PROMPT: '0',
-          GCM_INTERACTIVE: 'Never'
+          GCM_INTERACTIVE: 'Never',
+          ...extraEnv
         }
       });
       const stdout: Buffer[] = [];
@@ -232,6 +244,71 @@ export class GitService {
     return { base, target, ...sumNumstat(numstat), files: parseNameStatus(names) };
   }
 
+  async rewriteCommit(
+    root: string,
+    action: RewriteAction,
+    hash: string,
+    message?: string
+  ): Promise<{ backup: string }> {
+    assertRevision(hash);
+    const status = await this.status(root);
+    if (status.files.length) throw new Error('Commit or stash working changes before rewriting history.');
+    const details = await this.commitDetails(root, hash);
+    if (details.parents.length > 1) throw new Error('Merge commits cannot be rewritten by this workflow.');
+    await this.ensureAncestor(root, hash, 'HEAD');
+    if (action === 'squash' && !details.parents[0]) throw new Error('The root commit has no parent to squash into.');
+    if ((action === 'reword' || action === 'squash') && !message?.trim()) {
+      throw new Error('A commit message is required.');
+    }
+
+    const backup = `gitloupe/backup-${Date.now()}`;
+    await this.run(root, ['branch', backup, 'HEAD']);
+    const temporary = await mkdtemp(path.join(tmpdir(), 'gitloupe-rebase-'));
+    const sequenceEditor = path.join(temporary, 'sequence-editor.cjs');
+    const messageEditor = path.join(temporary, 'message-editor.cjs');
+    await writeFile(sequenceEditor, sequenceEditorSource, 'utf8');
+    await writeFile(messageEditor, messageEditorSource, 'utf8');
+    const upstream = action === 'squash' ? details.parents[0] : hash;
+    const upstreamDetails = action === 'squash' && upstream ? await this.commitDetails(root, upstream) : undefined;
+    const rebaseBase = action === 'squash' ? upstreamDetails?.parents[0] : details.parents[0];
+    try {
+      await this.run(
+        root,
+        rebaseBase ? ['rebase', '-i', rebaseBase] : ['rebase', '-i', '--root'],
+        undefined,
+        {
+          GIT_SEQUENCE_EDITOR: nodeScriptCommand(sequenceEditor),
+          GIT_EDITOR: nodeScriptCommand(messageEditor),
+          GITLOUPE_REBASE_ACTION: action,
+          GITLOUPE_REBASE_TARGET: hash,
+          GITLOUPE_REBASE_MESSAGE: message?.trim() ?? ''
+        }
+      );
+      this.invalidate(root);
+      return { backup };
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+
+  async rebaseState(root: string): Promise<'rebase' | undefined> {
+    const paths = await Promise.all([
+      this.run(root, ['rev-parse', '--git-path', 'rebase-merge']),
+      this.run(root, ['rev-parse', '--git-path', 'rebase-apply'])
+    ]);
+    return paths.some(value => existsSync(path.resolve(root, value.trim()))) ? 'rebase' : undefined;
+  }
+
+  async rebaseContinue(root: string): Promise<void> {
+    await this.run(root, ['-c', 'core.editor=true', 'rebase', '--continue']);
+    this.invalidate(root);
+  }
+
+  async rebaseAbort(root: string): Promise<void> {
+    await this.run(root, ['rebase', '--abort']);
+    this.invalidate(root);
+  }
+
   async fileHistory(root: string, absolutePath: string, limit = 300): Promise<FileHistoryEntry[]> {
     const relative = slash(path.relative(root, absolutePath));
     if (relative.startsWith('../') || path.isAbsolute(relative)) {
@@ -381,6 +458,14 @@ export class GitService {
   async blameFile(root: string, relativePath: string): Promise<BlameLine[]> {
     const output = await this.run(root, ['blame', '--porcelain', '--date=unix', '--', slash(relativePath)]);
     return parseBlame(output);
+  }
+
+  private async ensureAncestor(root: string, ancestor: string, descendant: string): Promise<void> {
+    try {
+      await this.run(root, ['merge-base', '--is-ancestor', ancestor, descendant]);
+    } catch {
+      throw new Error('Only commits on the current branch can be rewritten.');
+    }
   }
 }
 

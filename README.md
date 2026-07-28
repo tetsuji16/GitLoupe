@@ -19,6 +19,8 @@ small MIT-licensed extension that never asks you to create an account.
 - Per-commit addition and deletion totals
 - Commit inspection, commit-to-ref comparison, and native multi-file diffs
 - Branch creation, checkout, and confirmed cherry-pick actions
+- Guarded reword, squash-into-parent, and drop actions with recovery branches
+- Paused-rebase conflict guidance with continue and abort controls
 - Visual file history with author swim lanes, timeline bubbles, and change bars
 - Worktree creation, opening, and safe removal
 - Stash listing, inspection, apply, pop, and drop from the Stashes view

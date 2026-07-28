@@ -26,6 +26,8 @@ workflow gaps:
 - commit-to-ref comparison with per-file and native VS Code multi-diffs
 - cancellable deep searches with a bounded short-lived cache
 - debounced repository-state refresh for external Git changes
+- guarded reword, squash, and drop actions with automatic recovery branches
+- paused-rebase continue and abort controls
 - keyboard row navigation
 - root-commit and renamed-file diff correctness
 - nested repository discovery
@@ -67,8 +69,7 @@ until a compatible local-first design exists.
 
 1. Add cancellation for full graph reloads and linked-worktree metadata watchers.
 2. Add compare selectors for arbitrary commit pairs and working-tree states.
-3. Add safe merge, rebase, reword, squash, and drop workflows with recovery
-   guidance and integration tests.
+3. Extend history editing with reorder, fixup, safe merge, and branch rebase.
 4. Extend Visual File History from file scope to folder/repository scope and
    add richer hover and selection synchronization.
 5. Add graph minimap, HEAD/search/WIP scroll markers, branch focus, and

@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CommitDetails, FileHistoryEntry, GitService, Repository, Stash, Worktree } from './git.js';
+import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction, Stash, Worktree } from './git.js';
 import { graphWorkbenchHtml } from './graphWebview.js';
 import { visualFileHistoryHtml } from './visualHistoryWebview.js';
 
@@ -14,6 +14,9 @@ type GraphMessage =
   | { type: 'commit'; hash: string }
   | { type: 'compare'; hash: string; target: string }
   | { type: 'multiDiff'; base: string; target: string }
+  | { type: 'rewrite'; action: RewriteAction; hash: string; subject: string }
+  | { type: 'rebaseContinue' }
+  | { type: 'rebaseAbort' }
   | { type: 'checkout'; ref: string }
   | { type: 'switchBranch'; ref: string }
   | { type: 'fetch' }
@@ -178,6 +181,15 @@ export class GraphPanel {
         case 'multiDiff':
           await this.openMultiDiff(message.base, message.target);
           break;
+        case 'rewrite':
+          await this.rewrite(message.action, message.hash, message.subject);
+          break;
+        case 'rebaseContinue':
+          await this.finishRebase(false);
+          break;
+        case 'rebaseAbort':
+          await this.finishRebase(true);
+          break;
         case 'checkout':
           await this.checkout(message.ref);
           break;
@@ -246,13 +258,14 @@ export class GraphPanel {
     await this.send({ type: 'loading', value: true });
     try {
       const limit = vscode.workspace.getConfiguration('gitloupe').get('graph.maxCommits', 500);
-      const [commits, worktrees, branch, refs, status, stashes] = await Promise.all([
+      const [commits, worktrees, branch, refs, status, stashes, operation] = await Promise.all([
         this.git.graph(repo.root, limit),
         this.git.listWorktrees(repo.root),
         this.git.currentBranch(repo.root),
         this.git.refs(repo.root),
         this.git.status(repo.root),
-        this.git.listStashes(repo.root)
+        this.git.listStashes(repo.root),
+        this.git.rebaseState(repo.root)
       ]);
       const workingTrees = await Promise.all(worktrees.map(async tree => ({
         ...tree,
@@ -269,7 +282,8 @@ export class GraphPanel {
         worktrees: workingTrees,
         refs,
         status,
-        stashes
+        stashes,
+        operation
       });
     } finally {
       if (generation === this.loadGeneration) {
@@ -335,6 +349,67 @@ export class GraphPanel {
       `GitLoupe: ${base.slice(0, 8)} ↔ ${target}`,
       resources
     );
+  }
+
+  private async rewrite(action: RewriteAction, hash: string, subject: string): Promise<void> {
+    if (!this.selected) return;
+    const labels: Record<RewriteAction, string> = {
+      reword: 'Reword',
+      squash: 'Squash into Parent',
+      drop: 'Drop'
+    };
+    let message: string | undefined;
+    if (action !== 'drop') {
+      message = await vscode.window.showInputBox({
+        title: labels[action],
+        prompt: action === 'squash' ? 'Message for the combined commit' : 'New commit message',
+        value: subject,
+        ignoreFocusOut: true,
+        validateInput: value => value.trim() ? undefined : 'Enter a commit message.'
+      });
+      if (message === undefined) return;
+    }
+    const answer = await vscode.window.showWarningMessage(
+      `${labels[action]} ${hash.slice(0, 8)}?`,
+      {
+        modal: true,
+        detail: 'This rewrites the current branch. GitLoupe will create a gitloupe/backup-* recovery branch first. The working tree must be clean.'
+      },
+      labels[action]
+    );
+    if (answer !== labels[action]) return;
+    try {
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `${labels[action]}…` },
+        () => this.git.rewriteCommit(this.selected!.root, action, hash, message)
+      );
+      void vscode.window.showInformationMessage(`GitLoupe: History updated. Recovery branch: ${result.backup}`);
+    } catch (error) {
+      if (await this.git.rebaseState(this.selected.root)) {
+        const choice = await vscode.window.showErrorMessage(
+          `GitLoupe: Rebase paused. Resolve conflicts, then continue, or abort to restore the original branch. ${errorMessage(error)}`,
+          'Open Source Control',
+          'Abort Rebase'
+        );
+        if (choice === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+        if (choice === 'Abort Rebase') await this.git.rebaseAbort(this.selected.root);
+      } else {
+        throw error;
+      }
+    }
+    await this.load();
+  }
+
+  private async finishRebase(abort: boolean): Promise<void> {
+    if (!this.selected) return;
+    if (abort) {
+      const answer = await vscode.window.showWarningMessage('Abort the active rebase?', { modal: true }, 'Abort Rebase');
+      if (answer !== 'Abort Rebase') return;
+      await this.git.rebaseAbort(this.selected.root);
+    } else {
+      await this.git.rebaseContinue(this.selected.root);
+    }
+    await this.load();
   }
 
   private async checkout(ref: string): Promise<void> {
