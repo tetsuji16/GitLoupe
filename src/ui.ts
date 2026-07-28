@@ -647,25 +647,39 @@ export class GraphPanel {
 export async function showFileHistory(
   extensionUri: vscode.Uri,
   git: GitService,
-  resource?: vscode.Uri
+  resource?: vscode.Uri,
+  repositoryOnly = false
 ): Promise<void> {
-  const uri = resource ?? vscode.window.activeTextEditor?.document.uri;
+  let uri = resource ?? (repositoryOnly ? undefined : vscode.window.activeTextEditor?.document.uri);
+  if (!uri && repositoryOnly) {
+    const repositories = await git.discoverRepositories();
+    const selected = await vscode.window.showQuickPick(
+      repositories.map(repository => ({ label: repository.name, description: repository.root, repository })),
+      { title: 'Repository Visual History' }
+    );
+    if (selected) uri = vscode.Uri.file(selected.repository.root);
+  }
   if (!uri || uri.scheme !== 'file') {
-    void vscode.window.showInformationMessage('GitLoupe: Open a tracked file first.');
+    void vscode.window.showInformationMessage('GitLoupe: Select a file, folder, or repository first.');
     return;
   }
   try {
     const repo = await git.findRepository(uri.fsPath);
-    const entries = await git.fileHistory(repo.root, uri.fsPath);
+    const kind = await vscode.workspace.fs.stat(uri);
+    const isDirectory = (kind.type & vscode.FileType.Directory) !== 0;
+    const entries = isDirectory
+      ? await git.scopeHistory(repo.root, uri.fsPath)
+      : await git.fileHistory(repo.root, uri.fsPath);
     const relative = path.relative(repo.root, uri.fsPath).replaceAll('\\', '/');
+    const scope = relative || repo.name;
     const panel = vscode.window.createWebviewPanel(
       'gitloupe.fileHistory',
-      `History — ${path.basename(uri.fsPath)}`,
+      `History — ${scope}`,
       vscode.ViewColumn.One,
       { enableScripts: true, localResourceRoots: [extensionUri] }
     );
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'resources', 'gitloupe.svg');
-    panel.webview.html = visualFileHistoryHtml(relative, entries, createNonce());
+    panel.webview.html = visualFileHistoryHtml(scope, entries, createNonce());
     panel.webview.onDidReceiveMessage((message: { type?: string; hash?: string }) => {
       if (message.type === 'commit' && message.hash) {
         void vscode.commands.executeCommand('gitloupe.openCommit', { root: repo.root, hash: message.hash });

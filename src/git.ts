@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -135,7 +135,9 @@ export class GitService {
   }
 
   async findRepository(fileOrFolder: string): Promise<Repository> {
-    const cwd = path.extname(fileOrFolder) ? path.dirname(fileOrFolder) : fileOrFolder;
+    const cwd = (await stat(fileOrFolder).catch(() => undefined))?.isDirectory()
+      ? fileOrFolder
+      : path.dirname(fileOrFolder);
     const root = (await this.run(cwd, ['rev-parse', '--show-toplevel'])).trim();
     return { name: path.basename(root), root, branch: await this.currentBranch(root) };
   }
@@ -387,6 +389,21 @@ export class GitService {
       relative
     ]);
     return parseFileHistory(output);
+  }
+
+  async scopeHistory(root: string, absoluteScope: string, limit = 500): Promise<FileHistoryEntry[]> {
+    const relative = slash(path.relative(root, absoluteScope));
+    if (relative.startsWith('../') || path.isAbsolute(relative)) {
+      throw new Error('The selected scope is outside of the repository.');
+    }
+    const args = [
+      'log',
+      `--max-count=${limit}`,
+      `--format=${RECORD}${COMMIT_FORMAT}`,
+      '--numstat'
+    ];
+    if (relative) args.push('--', relative);
+    return parseFileHistory(await this.run(root, args));
   }
 
   async fileAtRevision(root: string, hash: string, relativePath: string): Promise<string> {

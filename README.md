@@ -23,7 +23,8 @@ small MIT-licensed extension that never asks you to create an account.
 - Branch creation, checkout, and confirmed cherry-pick actions
 - Guarded reword, squash-into-parent, and drop actions with recovery branches
 - Paused-rebase conflict guidance with continue and abort controls
-- Visual file history with author swim lanes, timeline bubbles, and change bars
+- File, folder, and repository Visual History with author lanes and change bars
+- Visual History period/author slicing and adjustable timeline zoom
 - Worktree creation, opening, and safe removal
 - Stash listing, inspection, apply, pop, and drop from the Stashes view
 - Multi-root workspace support

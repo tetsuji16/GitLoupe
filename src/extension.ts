@@ -35,6 +35,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('gitloupe.openFileHistory', (resource?: vscode.Uri) =>
       showFileHistory(context.extensionUri, git, resource)
     ),
+    vscode.commands.registerCommand('gitloupe.openRepositoryHistory', () =>
+      showFileHistory(context.extensionUri, git, undefined, true)
+    ),
     vscode.commands.registerCommand('gitloupe.refresh', async () => {
       await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),

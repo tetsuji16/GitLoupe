@@ -37,6 +37,7 @@
     "onStartupFinished",
     "onCommand:gitloupe.openGraph",
     "onCommand:gitloupe.openFileHistory",
+    "onCommand:gitloupe.openRepositoryHistory",
     "onView:gitloupe.graphView"
   ],
   "main": "./dist/extension.js",
@@ -49,8 +50,13 @@
       },
       {
         "command": "gitloupe.openFileHistory",
-        "title": "GitLoupe: Open Visual File History",
+        "title": "GitLoupe: Open Visual History for File or Folder",
         "icon": "$(history)"
+      },
+      {
+        "command": "gitloupe.openRepositoryHistory",
+        "title": "GitLoupe: Open Repository Visual History",
+        "icon": "$(type-hierarchy-sub)"
       },
       {
         "command": "gitloupe.refresh",

@@ -35,8 +35,8 @@ workflow gaps:
 - keyboard row navigation
 - root-commit and renamed-file diff correctness
 - nested repository discovery
-- visual file history with author lanes, time scale, magnitude bubbles, change
-  bars, zooming, brushing, and author slicing
+- file, folder, and repository visual history with author lanes, time scale,
+  magnitude bubbles, change bars, zooming, period filters, and author slicing
 
 ## Adversarial findings
 
@@ -74,8 +74,7 @@ until a compatible local-first design exists.
 1. Add cancellation for full graph reloads and linked-worktree metadata watchers.
 2. Extend comparison to staged-only state and symmetric Working Tree bases.
 3. Extend history editing with reorder, fixup, safe merge, and branch rebase.
-4. Extend Visual File History from file scope to folder/repository scope and
-   add richer hover and selection synchronization.
+4. Add drag brushing and richer selection synchronization to Visual History.
 5. Extend the graph minimap with WIP markers, branch focus, and configurable
    columns.
 6. Add multi-select file operations and staged/unstaged diff fidelity.
