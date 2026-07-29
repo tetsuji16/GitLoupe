@@ -272,7 +272,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node scripts/run-unit-tests.cjs",
     "test:extension": "npm run build && tsc -p tsconfig.extension-test.json && node scripts/run-extension-tests.cjs",
     "benchmark": "node scripts/benchmark.mjs",
     "verify": "npm run check && npm test && npm run build && npm run test:extension && npm run package && npm audit --audit-level=high",
