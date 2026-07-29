@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { GitService } from './git.js';
+import { escapeMarkdown } from './security.js';
 import type { BlameLine } from './parsers.js';
 import type { GraphPanel } from './ui.js';
 
@@ -27,6 +28,7 @@ const HEAT_BG = [
 
 export class BlameController implements vscode.Disposable {
   private readonly currentLineType: vscode.TextEditorDecorationType;
+  private readonly fileBlameType: vscode.TextEditorDecorationType;
   private readonly heatTypes: vscode.TextEditorDecorationType[];
   private readonly statusBar: vscode.StatusBarItem;
   private readonly fileCache = new Map<string, { version: number; lines: BlameLine[] }>();
@@ -38,6 +40,13 @@ export class BlameController implements vscode.Disposable {
       after: {
         color: new vscode.ThemeColor('editorCodeLens.foreground'),
         fontStyle: 'italic'
+      },
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen
+    });
+    this.fileBlameType = vscode.window.createTextEditorDecorationType({
+      after: {
+        color: new vscode.ThemeColor('editorCodeLens.foreground'),
+        margin: '0 0 0 2rem'
       },
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen
     });
@@ -66,6 +75,7 @@ export class BlameController implements vscode.Disposable {
       return;
     }
     await this.renderCurrentLine(editor, repo);
+    await this.renderFileBlame(editor, repo);
     await this.renderHeatmap(editor, repo);
   }
 
@@ -116,6 +126,79 @@ export class BlameController implements vscode.Disposable {
     }
   }
 
+  async toggleFileBlame(): Promise<void> {
+    const next = !this.config('blame.fileAnnotations', false);
+    await vscode.workspace.getConfiguration('gitloupe').update('blame.fileAnnotations', next, vscode.ConfigurationTarget.Global);
+    if (!next) {
+      for (const editor of vscode.window.visibleTextEditors) editor.setDecorations(this.fileBlameType, []);
+    } else {
+      await this.track();
+    }
+    void vscode.window.showInformationMessage(`GitLoupe: File blame annotations ${next ? 'enabled' : 'disabled'}.`);
+  }
+
+  async diffWithPrevious(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'file') return;
+    const repo = await this.repoFor(editor.document);
+    if (!repo) return;
+    const hash = await this.git.latestFileRevision(repo.root, repo.rel);
+    if (!hash) throw new Error('This file has no committed revision.');
+    const left = vscode.Uri.from({
+      scheme: 'gitloupe',
+      path: `/${path.basename(repo.rel)}`,
+      query: new URLSearchParams({ root: repo.root, hash, file: repo.rel }).toString()
+    });
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      left,
+      editor.document.uri,
+      `${repo.rel} (${hash.slice(0, 8)} ↔ Working Tree)`,
+      { selection: editor.selection }
+    );
+  }
+
+  async navigateFileRevision(direction: 'previous' | 'next'): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    let root: string;
+    let rel: string;
+    let current: string | undefined;
+    if (editor.document.uri.scheme === 'file') {
+      const repo = await this.repoFor(editor.document);
+      if (!repo) return;
+      root = repo.root;
+      rel = repo.rel;
+    } else if (editor.document.uri.scheme === 'gitloupe') {
+      const query = new URLSearchParams(editor.document.uri.query);
+      root = query.get('root') ?? '';
+      rel = query.get('file') ?? '';
+      current = query.get('hash') ?? undefined;
+      if (!root || !rel || !current) return;
+    } else {
+      return;
+    }
+    const revisions = await this.git.fileRevisions(root, rel);
+    const index = current ? revisions.indexOf(current) : -1;
+    const targetIndex = direction === 'previous' ? index + 1 : index - 1;
+    if (targetIndex < 0) {
+      await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, rel)), { preview: true });
+      return;
+    }
+    const hash = revisions[targetIndex];
+    if (!hash) {
+      void vscode.window.showInformationMessage(`GitLoupe: No ${direction} file revision.`);
+      return;
+    }
+    const uri = vscode.Uri.from({
+      scheme: 'gitloupe',
+      path: `/${path.basename(rel)}`,
+      query: new URLSearchParams({ root, hash, file: rel }).toString()
+    });
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, { preview: true, selection: editor.selection });
+  }
+
   async hoverFor(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> {
     if (!this.config('blame.enabled', true)) return undefined;
     const repo = await this.repoFor(document);
@@ -129,15 +212,17 @@ export class BlameController implements vscode.Disposable {
     const blame = lines.find(entry => entry.line === position.line + 1);
     if (!blame) return undefined;
     const markdown = new vscode.MarkdownString();
-    markdown.isTrusted = true;
+    markdown.isTrusted = {
+      enabledCommands: ['gitloupe.openCommit', 'gitloupe.copyHash', 'gitloupe.openFileHistory']
+    };
     if (blame.uncommitted) {
       markdown.appendMarkdown('**Uncommitted change**\n\nThis line has not been committed yet.');
       return new vscode.Hover(markdown, document.lineAt(position.line).range);
     }
     const encoded = encodeURIComponent(JSON.stringify({ hash: blame.hash, root: repo.root }));
-    markdown.appendMarkdown(`**${blame.author}** <${blame.email}>\n\n`);
+    markdown.appendMarkdown(`**${escapeMarkdown(blame.author)}** &lt;${escapeMarkdown(blame.email)}&gt;\n\n`);
     markdown.appendMarkdown(`${new Date(blame.timestamp * 1000).toLocaleString()}\n\n`);
-    markdown.appendMarkdown(`[${blame.hash.slice(0, 8)}](${blame.hash.slice(0, 8)}) ${blame.summary}\n\n`);
+    markdown.appendMarkdown(`\`${blame.hash.slice(0, 8)}\` ${escapeMarkdown(blame.summary)}\n\n`);
     markdown.appendMarkdown(
       `[Open in Graph](command:gitloupe.openCommit?${encoded}) · ` +
         `[Copy hash](command:gitloupe.copyHash?${encoded}) · ` +
@@ -203,6 +288,7 @@ export class BlameController implements vscode.Disposable {
 
   dispose(): void {
     this.currentLineType.dispose();
+    this.fileBlameType.dispose();
     for (const type of this.heatTypes) type.dispose();
     this.statusBar.dispose();
     clearTimeout(this.debounce);
@@ -250,6 +336,40 @@ export class BlameController implements vscode.Disposable {
     this.statusBar.text = `$(git-commit) ${blame.author}, ${relativeTime(blame.timestamp)}`;
     this.statusBar.show();
     editor.setDecorations(this.currentLineType, [{ range, renderOptions: { after: { contentText: '  ' + text } } }]);
+  }
+
+  private async renderFileBlame(editor: vscode.TextEditor, repo: RepoRef): Promise<void> {
+    if (!this.config('blame.fileAnnotations', false)) {
+      editor.setDecorations(this.fileBlameType, []);
+      return;
+    }
+    let lines: BlameLine[];
+    try {
+      lines = await this.fileBlame(editor.document, repo);
+    } catch {
+      editor.setDecorations(this.fileBlameType, []);
+      return;
+    }
+    const decorations: vscode.DecorationOptions[] = [];
+    let previous = '';
+    for (const entry of lines) {
+      const identity = entry.uncommitted ? 'uncommitted' : entry.hash;
+      if (identity === previous) continue;
+      previous = identity;
+      const range = editor.document.lineAt(entry.line - 1).range;
+      decorations.push({
+        range,
+        hoverMessage: entry.uncommitted ? 'Uncommitted change' : `${entry.author} · ${entry.summary}`,
+        renderOptions: {
+          after: {
+            contentText: entry.uncommitted
+              ? '  Uncommitted'
+              : `  ${entry.author}, ${relativeTime(entry.timestamp)} · ${entry.summary.slice(0, 72)}`
+          }
+        }
+      });
+    }
+    editor.setDecorations(this.fileBlameType, decorations);
   }
 
   private async renderHeatmap(editor: vscode.TextEditor, repo: RepoRef): Promise<void> {
@@ -307,6 +427,7 @@ export class BlameController implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       editor.setDecorations(this.currentLineType, []);
+      editor.setDecorations(this.fileBlameType, []);
       for (const type of this.heatTypes) editor.setDecorations(type, []);
     }
     this.statusBar.hide();

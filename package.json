@@ -2,7 +2,7 @@
   "name": "gitloupe-vscode",
   "displayName": "GitLoupe — Local Git Explorer",
   "description": "A login-free, local-first Git explorer for VS Code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "icon": "resources/gitloupe.png",
   "publisher": "tetsuji16",
   "license": "MIT",
@@ -104,6 +104,38 @@
       {
         "command": "gitloupe.createStash",
         "title": "GitLoupe: Stash Changes"
+      },
+      {
+        "command": "gitloupe.ollama.selectModel",
+        "title": "GitLoupe: Select Local Ollama Model"
+      },
+      {
+        "command": "gitloupe.ollama.setApiKey",
+        "title": "GitLoupe: Set Ollama Gateway API Key"
+      },
+      {
+        "command": "gitloupe.manageSelectedFiles",
+        "title": "GitLoupe: Manage Multiple Working Files"
+      },
+      {
+        "command": "gitloupe.toggleFileBlame",
+        "title": "GitLoupe: Toggle File Blame Annotations"
+      },
+      {
+        "command": "gitloupe.diffWithPrevious",
+        "title": "GitLoupe: Open Changes with Previous File Revision"
+      },
+      {
+        "command": "gitloupe.manageWorktree",
+        "title": "GitLoupe: Manage Worktree"
+      },
+      {
+        "command": "gitloupe.fileRevisionPrevious",
+        "title": "GitLoupe: Open Previous File Revision"
+      },
+      {
+        "command": "gitloupe.fileRevisionNext",
+        "title": "GitLoupe: Open Next File Revision"
       }
     ],
     "menus": {
@@ -112,6 +144,18 @@
           "command": "gitloupe.openFileHistory",
           "when": "resourceScheme == file",
           "group": "gitloupe@10"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gitloupe.diffWithPrevious",
+          "when": "resourceScheme == file",
+          "group": "gitloupe@10"
+        },
+        {
+          "command": "gitloupe.openFileHistory",
+          "when": "resourceScheme == file",
+          "group": "gitloupe@11"
         }
       ],
       "view/title": [
@@ -191,6 +235,35 @@
           "type": "boolean",
           "default": true,
           "description": "Include per-symbol authorship CodeLens using document symbols."
+        },
+        "gitloupe.blame.fileAnnotations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show blame annotations at the first line of each contiguous blame block."
+        },
+        "gitloupe.ollama.endpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Local or private-network Ollama endpoint. Public Internet hosts are rejected."
+        },
+        "gitloupe.ollama.model": {
+          "type": "string",
+          "default": "",
+          "description": "Ollama model used for local commit messages and explanations. Use “GitLoupe: Select Local Ollama Model”."
+        },
+        "gitloupe.ollama.timeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "description": "Timeout for local Ollama requests in milliseconds."
+        },
+        "gitloupe.ollama.maxDiffCharacters": {
+          "type": "number",
+          "default": 100000,
+          "minimum": 10000,
+          "maximum": 1000000,
+          "description": "Maximum diff characters sent to the configured Ollama endpoint."
         }
       }
     }
@@ -200,11 +273,15 @@
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
+    "test:extension": "npm run build && tsc -p tsconfig.extension-test.json && node scripts/run-extension-tests.cjs",
+    "benchmark": "node scripts/benchmark.mjs",
+    "verify": "npm run check && npm test && npm run build && npm run test:extension && npm run package && npm audit --audit-level=high",
     "package": "npm run check && npm test && npm run build && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.28.1",
     "tsx": "^4.19.2",

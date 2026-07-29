@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction, Stash, WORKING_TREE, Worktree } from './git.js';
 import { graphWorkbenchHtml } from './graphWebview.js';
 import { visualFileHistoryHtml } from './visualHistoryWebview.js';
+import { OllamaController } from './ollama.js';
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
@@ -21,17 +22,24 @@ type GraphMessage =
   | { type: 'rebaseAbort' }
   | { type: 'checkout'; ref: string }
   | { type: 'switchBranch'; ref: string }
-  | { type: 'fetch' }
+  | { type: 'fetch' | 'pull' | 'push' | 'publish' | 'undoCommit' }
+  | { type: 'merge' | 'rebaseBranch'; ref: string }
+  | { type: 'revert'; hash: string }
+  | { type: 'reset'; hash: string; mode: 'soft' | 'mixed' | 'hard' }
   | { type: 'launchpad' }
   | { type: 'createBranch'; hash: string }
   | { type: 'cherryPick'; hash: string }
   | { type: 'diffFile'; hash: string; parent?: string; file: string; oldFile?: string }
   | { type: 'diffComparison'; base: string; target: string; status: string; file: string; oldFile?: string }
-  | { type: 'workingDiff'; file: string }
+  | { type: 'workingDiff'; file: string; mode?: 'combined' | 'staged' | 'unstaged' }
   | { type: 'stage'; file: string }
   | { type: 'unstage'; file: string }
   | { type: 'discard'; file: string; untracked: boolean }
+  | { type: 'resolveConflict'; file: string; resolution: 'current' | 'incoming' | 'delete' }
+  | { type: 'batchFiles'; action: 'stage' | 'unstage' | 'discard' | 'stash' | 'multiDiff'; files: string[] }
   | { type: 'commitWorking'; message: string }
+  | { type: 'generateCommitMessage' | 'explainWorking' }
+  | { type: 'explainCommit'; hash: string }
   | { type: 'copyWorkingPatch'; staged: boolean }
   | { type: 'stashView'; ref: string }
   | { type: 'addWorktree' }
@@ -48,7 +56,9 @@ export class GitContentProvider implements vscode.TextDocumentContentProvider {
     const file = query.get('file');
     if (!root || !hash || !file) return '';
     try {
-      return await this.git.fileAtRevision(root, hash, file);
+      return hash === ':index'
+        ? await this.git.fileAtIndex(root, file)
+        : await this.git.fileAtRevision(root, hash, file);
     } catch {
       return '';
     }
@@ -105,10 +115,16 @@ export class GraphPanel {
   private pendingCommit?: string;
   private loadGeneration = 0;
   private searchAbort?: AbortController;
+  private loadAbort?: AbortController;
+  private worktreeWatchers: vscode.Disposable[] = [];
+  private watchedWorktreePaths: string[] = [];
+  private watcherTimer?: NodeJS.Timeout;
+  private operation?: 'rebase' | 'merge' | 'cherry-pick' | 'revert';
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly git: GitService
+    private readonly git: GitService,
+    private readonly ollama?: OllamaController
   ) {}
 
   async show(preferredRoot?: string): Promise<void> {
@@ -141,6 +157,9 @@ export class GraphPanel {
       this.panel.webview.onDidReceiveMessage(message => void this.handleMessage(message as GraphMessage)),
       this.panel.onDidDispose(() => {
         this.searchAbort?.abort();
+        this.loadAbort?.abort();
+        if (this.watcherTimer) clearTimeout(this.watcherTimer);
+        for (const watcher of this.worktreeWatchers.splice(0)) watcher.dispose();
         this.panel = undefined;
         for (const disposable of this.disposables.splice(0)) disposable.dispose();
       })
@@ -155,6 +174,76 @@ export class GraphPanel {
     if (!root || !hash) return;
     this.pendingCommit = hash;
     await this.show(root);
+  }
+
+  async manageSelectedFiles(): Promise<void> {
+    this.repositories = await this.git.discoverRepositories();
+    this.selected ??= this.repositories[0];
+    if (!this.selected) throw new Error('Open a Git repository first.');
+    const status = await this.git.status(this.selected.root);
+    const picks = await vscode.window.showQuickPick(
+      status.files.map(file => ({
+        label: file.path,
+        description: `${file.indexStatus}${file.worktreeStatus}${file.conflicted ? ' · conflicted' : ''}`,
+        file
+      })),
+      { title: 'GitLoupe: Select working files', canPickMany: true, matchOnDescription: true }
+    );
+    if (!picks?.length) return;
+    const action = await vscode.window.showQuickPick(
+      [
+        { label: 'Open selected changes', value: 'multiDiff' as const },
+        { label: 'Stage selected', value: 'stage' as const },
+        { label: 'Unstage selected', value: 'unstage' as const },
+        { label: 'Stash selected', value: 'stash' as const },
+        { label: 'Discard selected working changes', value: 'discard' as const }
+      ],
+      { title: `${picks.length} selected files` }
+    );
+    if (action) await this.batchFiles(action.value, picks.map(item => item.file.path));
+  }
+
+  async manageWorktree(): Promise<void> {
+    this.repositories = await this.git.discoverRepositories();
+    this.selected ??= this.repositories[0];
+    if (!this.selected) throw new Error('Open a Git repository first.');
+    const worktrees = (await this.git.listWorktrees(this.selected.root)).filter(tree => !tree.bare);
+    const choice = await vscode.window.showQuickPick(
+      worktrees.map(tree => ({
+        label: tree.branch || '(detached)',
+        description: tree.path,
+        tree
+      })),
+      { title: 'GitLoupe: Select worktree', matchOnDescription: true }
+    );
+    if (!choice) return;
+    const action = await vscode.window.showQuickPick(
+      [
+        { label: 'Open in new window', value: 'open' as const },
+        { label: 'Open integrated terminal', value: 'terminal' as const },
+        { label: 'Fetch remotes', value: 'fetch' as const },
+        { label: 'Fast-forward pull', value: 'pull' as const },
+        { label: 'Push', value: 'push' as const }
+      ],
+      { title: choice.tree.path }
+    );
+    if (!action) return;
+    if (action.value === 'open') {
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(choice.tree.path), true);
+    } else if (action.value === 'terminal') {
+      const terminal = vscode.window.createTerminal({ name: `GitLoupe: ${choice.label}`, cwd: choice.tree.path });
+      terminal.show();
+    } else {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `${action.label}: ${choice.label}…` },
+        () => action.value === 'fetch'
+          ? this.git.fetch(choice.tree.path)
+          : action.value === 'pull'
+            ? this.git.pull(choice.tree.path)
+            : this.git.push(choice.tree.path)
+      );
+      await this.load();
+    }
   }
 
   private async handleMessage(message: GraphMessage): Promise<void> {
@@ -208,6 +297,30 @@ export class GraphPanel {
         case 'fetch':
           await this.fetch();
           break;
+        case 'pull':
+          await this.sync('pull');
+          break;
+        case 'push':
+          await this.sync('push');
+          break;
+        case 'publish':
+          await this.sync('publish');
+          break;
+        case 'merge':
+          await this.integrate('merge', message.ref);
+          break;
+        case 'rebaseBranch':
+          await this.integrate('rebase', message.ref);
+          break;
+        case 'undoCommit':
+          await this.undoCommit();
+          break;
+        case 'revert':
+          await this.revert(message.hash);
+          break;
+        case 'reset':
+          await this.reset(message.hash, message.mode);
+          break;
         case 'launchpad':
           await vscode.commands.executeCommand('gitloupe.openLaunchpad');
           break;
@@ -224,7 +337,7 @@ export class GraphPanel {
           await this.diffComparison(message.base, message.target, message.status, message.file, message.oldFile);
           break;
         case 'workingDiff':
-          await this.workingDiff(message.file);
+          await this.workingDiff(message.file, message.mode ?? 'combined');
           break;
         case 'stage':
           await this.changeStage(message.file, true);
@@ -235,8 +348,23 @@ export class GraphPanel {
         case 'discard':
           await this.discard(message.file, message.untracked);
           break;
+        case 'resolveConflict':
+          await this.resolveConflict(message.file, message.resolution);
+          break;
+        case 'batchFiles':
+          await this.batchFiles(message.action, message.files);
+          break;
         case 'commitWorking':
           await this.commitWorking(message.message);
+          break;
+        case 'generateCommitMessage':
+          await this.generateCommitMessage();
+          break;
+        case 'explainWorking':
+          await this.explainWorking();
+          break;
+        case 'explainCommit':
+          await this.explainCommit(message.hash);
           break;
         case 'copyWorkingPatch':
           await this.copyWorkingPatch(message.staged);
@@ -250,10 +378,10 @@ export class GraphPanel {
           await this.addWorktree();
           break;
         case 'openWorktree':
-          await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(message.path), true);
+          await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(await this.validateWorktreePath(message.path)), true);
           break;
         case 'removeWorktree':
-          await this.removeWorktree(message.path);
+          await this.removeWorktree(await this.validateWorktreePath(message.path));
           break;
       }
     } catch (error) {
@@ -265,26 +393,31 @@ export class GraphPanel {
     const repo = this.selected;
     if (!repo || !this.panel) return;
     this.searchAbort?.abort();
+    this.loadAbort?.abort();
+    const controller = new AbortController();
+    this.loadAbort = controller;
     this.git.invalidate(repo.root);
     const generation = ++this.loadGeneration;
     await this.send({ type: 'loading', value: true });
     try {
       const limit = vscode.workspace.getConfiguration('gitloupe').get('graph.maxCommits', 500);
       const [commits, worktrees, branch, refs, status, stashes, operation] = await Promise.all([
-        this.git.graph(repo.root, limit),
-        this.git.listWorktrees(repo.root),
-        this.git.currentBranch(repo.root),
-        this.git.refs(repo.root),
-        this.git.status(repo.root),
-        this.git.listStashes(repo.root),
-        this.git.rebaseState(repo.root)
+        this.git.graph(repo.root, limit, controller.signal),
+        this.git.listWorktrees(repo.root, controller.signal),
+        this.git.currentBranch(repo.root, controller.signal),
+        this.git.refs(repo.root, controller.signal),
+        this.git.status(repo.root, controller.signal),
+        this.git.listStashes(repo.root, controller.signal),
+        this.git.operationState(repo.root, controller.signal)
       ]);
       const workingTrees = await Promise.all(worktrees.map(async tree => ({
         ...tree,
-        status: tree.bare ? undefined : await this.git.status(tree.path).catch(() => undefined)
+        status: tree.bare ? undefined : await this.git.status(tree.path, controller.signal).catch(() => undefined)
       })));
       if (generation !== this.loadGeneration || repo !== this.selected) return;
       repo.branch = branch;
+      this.operation = operation;
+      this.watchWorktrees(workingTrees.filter(tree => !tree.bare).map(tree => tree.path));
       this.panel.title = `GitLoupe — ${repo.name}`;
       await this.send({
         type: 'graph',
@@ -297,6 +430,8 @@ export class GraphPanel {
         stashes,
         operation
       });
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
     } finally {
       if (generation === this.loadGeneration) {
         await this.send({ type: 'loading', value: false });
@@ -370,6 +505,7 @@ export class GraphPanel {
     const labels: Record<RewriteAction, string> = {
       reword: 'Reword',
       squash: 'Squash into Parent',
+      fixup: 'Fixup into Parent',
       drop: 'Drop',
       moveParent: 'Move toward Parent',
       moveHead: 'Move toward HEAD'
@@ -458,13 +594,14 @@ export class GraphPanel {
   }
 
   private async finishRebase(abort: boolean): Promise<void> {
-    if (!this.selected) return;
+    if (!this.selected || !this.operation) return;
     if (abort) {
-      const answer = await vscode.window.showWarningMessage('Abort the active rebase?', { modal: true }, 'Abort Rebase');
-      if (answer !== 'Abort Rebase') return;
-      await this.git.rebaseAbort(this.selected.root);
+      const label = `Abort ${this.operation}`;
+      const answer = await vscode.window.showWarningMessage(`Abort the active ${this.operation}?`, { modal: true }, label);
+      if (answer !== label) return;
+      await this.git.abortOperation(this.selected.root, this.operation);
     } else {
-      await this.git.rebaseContinue(this.selected.root);
+      await this.git.continueOperation(this.selected.root, this.operation);
     }
     await this.load();
   }
@@ -490,6 +627,77 @@ export class GraphPanel {
       { location: vscode.ProgressLocation.Notification, title: `Fetching ${this.selected.name}…` },
       () => this.git.fetch(this.selected!.root)
     );
+    await this.load();
+  }
+
+  private async sync(action: 'pull' | 'push' | 'publish'): Promise<void> {
+    if (!this.selected) return;
+    const label = action === 'publish' ? 'Publish Branch' : action[0]!.toUpperCase() + action.slice(1);
+    const run = action === 'pull'
+      ? () => this.git.pull(this.selected!.root)
+      : () => this.git.push(this.selected!.root, action === 'publish');
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `${label}: ${this.selected.branch}…` },
+      run
+    );
+    await this.load();
+  }
+
+  private async integrate(action: 'merge' | 'rebase', ref: string): Promise<void> {
+    if (!this.selected) return;
+    const label = action === 'merge' ? 'Merge' : 'Rebase';
+    const answer = await vscode.window.showWarningMessage(
+      `${label} "${ref}" ${action === 'merge' ? 'into' : 'onto'} "${this.selected.branch}"?`,
+      { modal: true, detail: 'The working tree must be clean. Conflicts may pause the operation.' },
+      label
+    );
+    if (answer !== label) return;
+    if (action === 'merge') await this.git.merge(this.selected.root, ref);
+    else await this.git.rebaseBranch(this.selected.root, ref);
+    await this.load();
+  }
+
+  private async undoCommit(): Promise<void> {
+    if (!this.selected) return;
+    const answer = await vscode.window.showWarningMessage(
+      `Undo the latest commit on "${this.selected.branch}"?`,
+      { modal: true, detail: 'The commit is removed with a mixed reset; its changes remain in the working tree.' },
+      'Undo Commit'
+    );
+    if (answer !== 'Undo Commit') return;
+    await this.git.undoCommit(this.selected.root);
+    await this.load();
+  }
+
+  private async revert(hash: string): Promise<void> {
+    if (!this.selected) return;
+    const answer = await vscode.window.showWarningMessage(
+      `Create a revert commit for ${hash.slice(0, 8)}?`,
+      { modal: true },
+      'Revert'
+    );
+    if (answer !== 'Revert') return;
+    await this.git.revert(this.selected.root, hash);
+    await this.load();
+  }
+
+  private async reset(hash: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
+    if (!this.selected) return;
+    const destructive = mode === 'hard';
+    const answer = await vscode.window.showWarningMessage(
+      `Reset "${this.selected.branch}" to ${hash.slice(0, 8)} (${mode})?`,
+      {
+        modal: true,
+        detail: destructive
+          ? 'Hard reset permanently discards tracked working-tree and index changes.'
+          : mode === 'mixed'
+            ? 'Commits are removed and their changes remain unstaged.'
+            : 'Commits are removed and their changes remain staged.'
+      },
+      destructive ? 'Hard Reset' : 'Reset'
+    );
+    if (answer !== (destructive ? 'Hard Reset' : 'Reset')) return;
+    await this.git.resetTo(this.selected.root, hash, mode);
     await this.load();
   }
 
@@ -533,15 +741,18 @@ export class GraphPanel {
     );
   }
 
-  private async workingDiff(file: string): Promise<void> {
+  private async workingDiff(file: string, mode: 'combined' | 'staged' | 'unstaged'): Promise<void> {
     if (!this.selected) return;
     const absolute = safeWorkingPath(this.selected.root, file);
-    const left = vscode.Uri.from({
+    const makeUri = (hash: string) => vscode.Uri.from({
       scheme: 'gitloupe',
       path: `/${path.basename(file)}`,
-      query: new URLSearchParams({ root: this.selected.root, hash: 'HEAD', file }).toString()
+      query: new URLSearchParams({ root: this.selected!.root, hash, file }).toString()
     });
-    await vscode.commands.executeCommand('vscode.diff', left, vscode.Uri.file(absolute), `${file} (HEAD ↔ Working Tree)`);
+    const left = makeUri(mode === 'unstaged' ? ':index' : 'HEAD');
+    const right = mode === 'staged' ? makeUri(':index') : vscode.Uri.file(absolute);
+    const label = mode === 'staged' ? 'HEAD ↔ Index' : mode === 'unstaged' ? 'Index ↔ Working Tree' : 'HEAD ↔ Working Tree';
+    await vscode.commands.executeCommand('vscode.diff', left, right, `${file} (${label})`);
   }
 
   private async diffComparison(
@@ -589,6 +800,69 @@ export class GraphPanel {
     await this.load();
   }
 
+  private async resolveConflict(file: string, resolution: 'current' | 'incoming' | 'delete'): Promise<void> {
+    if (!this.selected) return;
+    safeWorkingPath(this.selected.root, file);
+    const label = resolution === 'current' ? 'Take Current' : resolution === 'incoming' ? 'Take Incoming' : 'Delete';
+    const answer = await vscode.window.showWarningMessage(
+      `${label} for conflicted file "${file}"?`,
+      {
+        modal: true,
+        detail: 'For rebases, Git’s current/incoming sides can differ from merge terminology. Review the staged result before continuing.'
+      },
+      label
+    );
+    if (answer !== label) return;
+    await this.git.resolveConflict(this.selected.root, file, resolution);
+    await this.load();
+  }
+
+  private async batchFiles(
+    action: 'stage' | 'unstage' | 'discard' | 'stash' | 'multiDiff',
+    files: string[]
+  ): Promise<void> {
+    if (!this.selected) return;
+    const unique = [...new Set(files)].filter(Boolean);
+    if (!unique.length) return;
+    unique.forEach(file => safeWorkingPath(this.selected!.root, file));
+    if (action === 'multiDiff') {
+      const resources = unique.map(file => [
+        vscode.Uri.file(safeWorkingPath(this.selected!.root, file)),
+        vscode.Uri.from({
+          scheme: 'gitloupe',
+          path: `/${path.basename(file)}`,
+          query: new URLSearchParams({ root: this.selected!.root, hash: 'HEAD', file }).toString()
+        }),
+        vscode.Uri.file(safeWorkingPath(this.selected!.root, file))
+      ]);
+      await vscode.commands.executeCommand('vscode.changes', `GitLoupe: ${unique.length} working files`, resources);
+      return;
+    }
+    if (action === 'discard') {
+      const status = await this.git.status(this.selected.root);
+      const untracked = unique.filter(file => status.files.some(item => item.path === file && item.untracked));
+      if (untracked.length) throw new Error(`Untracked files are never deleted by GitLoupe: ${untracked.join(', ')}`);
+      const answer = await vscode.window.showWarningMessage(
+        `Discard working changes in ${unique.length} selected files?`,
+        { modal: true, detail: 'Tracked working-tree changes are restored from the index and cannot be recovered by Git.' },
+        'Discard Selected'
+      );
+      if (answer !== 'Discard Selected') return;
+    }
+    if (action === 'stash') {
+      const message = await vscode.window.showInputBox({ title: `Stash ${unique.length} selected files`, value: `Selected files from ${this.selected.branch}` });
+      if (message === undefined) return;
+      await this.git.createStash(this.selected.root, message || undefined, unique);
+    } else {
+      for (const file of unique) {
+        if (action === 'stage') await this.git.stage(this.selected.root, file);
+        if (action === 'unstage') await this.git.unstage(this.selected.root, file);
+        if (action === 'discard') await this.git.discard(this.selected.root, file);
+      }
+    }
+    await this.load();
+  }
+
   private async commitWorking(message: string): Promise<void> {
     if (!this.selected || !message.trim()) return;
     await vscode.window.withProgress(
@@ -596,6 +870,22 @@ export class GraphPanel {
       () => this.git.commit(this.selected!.root, message)
     );
     await this.load();
+  }
+
+  private async generateCommitMessage(): Promise<void> {
+    if (!this.selected || !this.ollama) return;
+    const message = await this.ollama.generateCommitMessage(this.selected.root);
+    await this.send({ type: 'commitMessage', message });
+  }
+
+  private async explainWorking(): Promise<void> {
+    if (!this.selected || !this.ollama) return;
+    await showMarkdownDocument('GitLoupe — Working Changes Explanation', await this.ollama.explainWorkingChanges(this.selected.root));
+  }
+
+  private async explainCommit(hash: string): Promise<void> {
+    if (!this.selected || !this.ollama) return;
+    await showMarkdownDocument(`GitLoupe — ${hash.slice(0, 8)} Explanation`, await this.ollama.explainCommit(this.selected.root, hash));
   }
 
   private async copyWorkingPatch(staged: boolean): Promise<void> {
@@ -647,6 +937,37 @@ export class GraphPanel {
 
   private async send(message: unknown): Promise<void> {
     await this.panel?.webview.postMessage(message);
+  }
+
+  private async validateWorktreePath(candidate: string): Promise<string> {
+    if (!this.selected) throw new Error('No repository is selected.');
+    const worktrees = await this.git.listWorktrees(this.selected.root);
+    const normalized = path.resolve(candidate);
+    const match = worktrees.find(tree => path.resolve(tree.path) === normalized);
+    if (!match) throw new Error('The requested path is not a linked worktree of the selected repository.');
+    return match.path;
+  }
+
+  private watchWorktrees(paths: string[]): void {
+    if (this.watchedWorktreePaths.length === paths.length && paths.every(value => this.watchedWorktreePaths.includes(value))) return;
+    for (const watcher of this.worktreeWatchers.splice(0)) watcher.dispose();
+    this.watchedWorktreePaths = paths.slice();
+    for (const worktreePath of paths) {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(worktreePath, '**/*'));
+      const queue = (): void => {
+        if (this.watcherTimer) clearTimeout(this.watcherTimer);
+        this.watcherTimer = setTimeout(() => {
+          this.watcherTimer = undefined;
+          void this.load();
+        }, 300);
+      };
+      this.worktreeWatchers.push(
+        watcher,
+        watcher.onDidCreate(queue),
+        watcher.onDidChange(queue),
+        watcher.onDidDelete(queue)
+      );
+    }
   }
 }
 
@@ -946,6 +1267,12 @@ function sidebarHtml(repositories: Repository[], stashes: Map<string, Stash[]>, 
   </head><body>${repoRows}${stashSection}<button id="open" class="open">Open Commit Graph</button><button id="refresh" class="secondary">Refresh</button>
   <script nonce="${nonce}">const vscode=acquireVsCodeApi();document.getElementById('open').addEventListener('click',()=>vscode.postMessage({type:'openGraph'}));document.getElementById('refresh').addEventListener('click',()=>vscode.postMessage({type:'refresh'}));document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashView',root:b.dataset.view.split('|')[0],ref:b.dataset.view.split('|')[1]})));document.querySelectorAll('[data-pop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashPop',root:b.dataset.pop.split('|')[0],ref:b.dataset.pop.split('|')[1]})));document.querySelectorAll('[data-apply]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashApply',root:b.dataset.apply.split('|')[0],ref:b.dataset.apply.split('|')[1]})));document.querySelectorAll('[data-drop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashDrop',root:b.dataset.drop.split('|')[0],ref:b.dataset.drop.split('|')[1]})));</script>
   </body></html>`;
+}
+
+async function showMarkdownDocument(title: string, content: string): Promise<void> {
+  const document = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
+  await vscode.window.showTextDocument(document, { preview: true });
+  void vscode.window.setStatusBarMessage(title, 4_000);
 }
 
 function commonCss(): string {

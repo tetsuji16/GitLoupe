@@ -2,26 +2,31 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { GitService } from './git.js';
 import { launchpadHtml } from './launchpadWebview.js';
-import { GitHubPullRequestProvider, PullRequestSummary } from './providers.js';
+import { GitHubPullRequestProvider, ProviderRepository, PullRequestSummary } from './providers.js';
 
 interface LaunchpadItem extends PullRequestSummary {
   root: string;
   currentBranch: boolean;
+  pinned: boolean;
+  snoozed: boolean;
 }
 
 type LaunchpadMessage =
   | { type: 'ready' | 'refresh' | 'connect' }
-  | { type: 'open' | 'checkout' | 'changes'; index: number };
+  | { type: 'open' | 'checkout' | 'changes' | 'pin' | 'snooze' | 'approve' | 'requestChanges' | 'comment'; index: number };
 
 export class LaunchpadPanel {
   private panel?: vscode.WebviewPanel;
   private items: LaunchpadItem[] = [];
   private abort?: AbortController;
+  private account?: string;
+  private provider?: GitHubPullRequestProvider;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly git: GitService,
-    private readonly onRepositoryChanged: () => Promise<void>
+    private readonly onRepositoryChanged: () => Promise<void>,
+    private readonly state: vscode.Memento
   ) {}
 
   async show(): Promise<void> {
@@ -52,6 +57,11 @@ export class LaunchpadPanel {
       if (message.type === 'open') await this.open(message.index);
       if (message.type === 'checkout') await this.checkout(message.index);
       if (message.type === 'changes') await this.openChanges(message.index);
+      if (message.type === 'pin') await this.toggleState(message.index, 'pinned');
+      if (message.type === 'snooze') await this.toggleState(message.index, 'snoozed');
+      if (message.type === 'approve') await this.submitReview(message.index, 'APPROVE');
+      if (message.type === 'requestChanges') await this.submitReview(message.index, 'REQUEST_CHANGES');
+      if (message.type === 'comment') await this.submitReview(message.index, 'COMMENT');
     } catch (error) {
       await this.panel?.webview.postMessage({ type: 'error', message: errorMessage(error) });
     }
@@ -67,17 +77,24 @@ export class LaunchpadPanel {
       connect ? { createIfNone: true } : { createIfNone: false }
     );
     const provider = new GitHubPullRequestProvider(session?.accessToken);
+    this.provider = provider;
+    this.account = session?.account.label;
     const repositories = await this.git.discoverRepositories();
     const results = await Promise.allSettled(repositories.map(async repository => {
       const remoteUrl = await this.git.remoteUrl(repository.root).catch(() => '');
       const providerRepository = provider.parseRemote(remoteUrl);
       if (!providerRepository) return [];
       const pulls = await provider.listPullRequests(providerRepository, controller.signal);
-      return pulls.map(pull => ({
-        ...pull,
-        root: repository.root,
-        currentBranch: pull.head === repository.branch
-      }));
+      return pulls.map(pull => {
+        const key = `${pull.repository}#${pull.number}`;
+        return {
+          ...pull,
+          root: repository.root,
+          currentBranch: pull.head === repository.branch,
+          pinned: this.state.get<string[]>('gitloupe.launchpad.pinned', []).includes(key),
+          snoozed: this.state.get<string[]>('gitloupe.launchpad.snoozed', []).includes(key)
+        };
+      });
     }));
     if (controller.signal.aborted) return;
     this.items = results
@@ -87,7 +104,7 @@ export class LaunchpadPanel {
     await this.panel?.webview.postMessage({
       type: 'model',
       items: this.items,
-      account: session?.account.label,
+      account: this.account,
       warning: results.some(result => result.status === 'rejected')
         ? 'Some repositories could not be loaded. Connect GitHub for private repositories or a higher API rate limit.'
         : undefined
@@ -146,6 +163,56 @@ export class LaunchpadPanel {
       `${item.repository}#${item.number}: ${item.title}`,
       resources
     );
+  }
+
+  private async toggleState(index: number, kind: 'pinned' | 'snoozed'): Promise<void> {
+    const item = this.items[index];
+    if (!item) return;
+    const storageKey = `gitloupe.launchpad.${kind}`;
+    const itemKey = `${item.repository}#${item.number}`;
+    const values = new Set(this.state.get<string[]>(storageKey, []));
+    if (values.has(itemKey)) values.delete(itemKey);
+    else values.add(itemKey);
+    await this.state.update(storageKey, [...values]);
+    item[kind] = values.has(itemKey);
+    await this.panel?.webview.postMessage({
+      type: 'model',
+      items: this.items,
+      account: this.account
+    });
+  }
+
+  private async submitReview(
+    index: number,
+    event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'
+  ): Promise<void> {
+    const item = this.items[index];
+    if (!item || !this.provider) return;
+    const body = await vscode.window.showInputBox({
+      title: `${event === 'APPROVE' ? 'Approve' : event === 'REQUEST_CHANGES' ? 'Request changes on' : 'Comment on'} ${item.repository}#${item.number}`,
+      prompt: event === 'APPROVE' ? 'Optional review summary' : 'Review summary',
+      validateInput: value => event !== 'APPROVE' && !value.trim() ? 'Enter a review summary.' : undefined,
+      ignoreFocusOut: true
+    });
+    if (body === undefined) return;
+    const confirm = await vscode.window.showWarningMessage(
+      `Submit ${event.toLowerCase().replace('_', ' ')} to ${item.repository}#${item.number}?`,
+      { modal: true, detail: 'This writes a pull request review to GitHub.' },
+      'Submit Review'
+    );
+    if (confirm !== 'Submit Review') return;
+    const [owner, name] = item.repository.split('/');
+    if (!owner || !name) throw new Error('Invalid GitHub repository identifier.');
+    const repository: ProviderRepository = {
+      providerId: 'github',
+      host: 'github.com',
+      owner,
+      name,
+      remoteUrl: `https://github.com/${item.repository}.git`
+    };
+    await this.provider.submitReview(repository, item.number, event, body.trim());
+    void vscode.window.showInformationMessage(`GitLoupe: Review submitted to ${item.repository}#${item.number}.`);
+    await this.load(false);
   }
 }
 

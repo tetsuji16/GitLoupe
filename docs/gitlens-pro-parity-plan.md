@@ -11,6 +11,28 @@ GitLens Pro replacement. Its commit graph was primarily a history viewer,
 while current GitLens 18 presents the graph as a workbench for repository,
 working-tree, branch, and worktree operations.
 
+## 2026-07-29 implementation status
+
+The P0 and local-first P1 pass adds:
+
+- trusted-Markdown command allowlisting and untrusted metadata escaping
+- cancellable full Graph Git processes and active-worktree WIP watchers
+- staged-only, unstaged-only, and combined diffs
+- merge, rebase, cherry-pick, and revert operation detection and controls
+- manual current, incoming, and delete conflict resolution
+- pull, push, publish, merge, branch rebase, revert, reset, and undo actions
+- multi-file stage, unstage, stash, discard, and multi-diff
+- branch-focused Graph scope and offscreen row rendering containment
+- whole-file blame blocks and previous-file-revision comparison
+- Launchpad pagination, retry, check status, pin/snooze, and review submission
+- private-network Ollama commit messages and change explanations
+- CI, dependency auditing, Extension Host smoke tests, and security regression tests
+
+GitLoupe intentionally does not add account-backed Cloud Patches, GitKraken
+workspaces, hosted AI, or GitKraken agent hooks. Remaining provider breadth,
+advanced Graph layout customization, drag-based rebase editing, and
+visualization brushing are tracked below rather than described as complete.
+
 The first parity increment in this branch closes the most disruptive local
 workflow gaps:
 
@@ -44,7 +66,7 @@ workflow gaps:
 
 ## Adversarial findings
 
-### Critical
+### Closed critical findings
 
 - No WIP or staging workflow existed in the graph.
 - No ref-oriented navigation existed alongside the graph.
@@ -52,7 +74,7 @@ workflow gaps:
 - Root commit diffs used an invalid `commit^` revision.
 - Renamed-file diffs requested the new path from the parent revision.
 
-### High
+### Closed high findings
 
 - Search was a single unstructured substring filter.
 - Visual File History did not reproduce the author swim lanes, time axis,
@@ -75,17 +97,14 @@ provider network access.
 
 ## Remaining roadmap
 
-1. Add cancellation for full graph reloads and linked-worktree metadata watchers.
-2. Extend comparison to staged-only state and symmetric Working Tree bases.
-3. Extend history editing with fixup, safe merge, and branch rebase.
-4. Add drag brushing and richer selection synchronization to Visual History.
-5. Extend the graph minimap with WIP markers, branch focus, and configurable
-   columns.
-6. Add multi-select file operations and staged/unstaged diff fidelity.
-7. Add repository watchers, request cancellation, and bounded caches so large
-   repositories remain responsive.
-8. Add GitLab/Bitbucket adapters, check status, review submission, and merge
-   queue support without weakening the login-free local core.
+1. Extend history editing with fixup and a full drag-based rebase plan editor.
+2. Add drag brushing and richer selection synchronization to Visual History.
+3. Extend the graph minimap with WIP markers and finer per-column sizing.
+4. Add lazy per-file line statistics and measured Graph virtualization beyond
+   CSS rendering containment.
+5. Add GitLab/Bitbucket adapters and merge-queue support without weakening the
+   login-free local core.
+6. Add richer inline diff hovers in the editor.
 
 ## Acceptance gates
 

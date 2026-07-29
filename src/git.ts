@@ -33,7 +33,7 @@ export interface ComparisonDetails {
   files: CommitDetails['files'];
 }
 
-export type RewriteAction = 'reword' | 'squash' | 'drop' | 'moveParent' | 'moveHead';
+export type RewriteAction = 'reword' | 'squash' | 'fixup' | 'drop' | 'moveParent' | 'moveHead';
 export const WORKING_TREE = ':working-tree';
 
 export interface Repository {
@@ -142,10 +142,10 @@ export class GitService {
     return { name: path.basename(root), root, branch: await this.currentBranch(root) };
   }
 
-  async currentBranch(root: string): Promise<string> {
-    const branch = (await this.run(root, ['branch', '--show-current'])).trim();
+  async currentBranch(root: string, signal?: AbortSignal): Promise<string> {
+    const branch = (await this.run(root, ['branch', '--show-current'], signal)).trim();
     if (branch) return branch;
-    return (await this.run(root, ['rev-parse', '--short', 'HEAD'])).trim();
+    return (await this.run(root, ['rev-parse', '--short', 'HEAD'], signal)).trim();
   }
 
   async remoteUrl(root: string, remote = 'origin'): Promise<string> {
@@ -173,7 +173,7 @@ export class GitService {
     return (await this.run(root, ['rev-parse', 'FETCH_HEAD'])).trim();
   }
 
-  async graph(root: string, limit: number): Promise<Commit[]> {
+  async graph(root: string, limit: number, signal?: AbortSignal): Promise<Commit[]> {
     try {
       const output = await this.run(root, [
         'log',
@@ -182,7 +182,7 @@ export class GitService {
         `--max-count=${limit}`,
         `--format=${RECORD}${COMMIT_FORMAT}`,
         '--numstat'
-      ]);
+      ], signal);
       return parseCommits(output);
     } catch (error) {
       // An initialized repository with an unborn branch has no graph yet.
@@ -305,7 +305,7 @@ export class GitService {
     const details = await this.commitDetails(root, hash);
     if (details.parents.length > 1) throw new Error('Merge commits cannot be rewritten by this workflow.');
     await this.ensureAncestor(root, hash, 'HEAD');
-    if (action === 'squash' && !details.parents[0]) throw new Error('The root commit has no parent to squash into.');
+    if ((action === 'squash' || action === 'fixup') && !details.parents[0]) throw new Error('The root commit has no parent to combine into.');
     if ((action === 'reword' || action === 'squash') && !message?.trim()) {
       throw new Error('A commit message is required.');
     }
@@ -320,10 +320,11 @@ export class GitService {
     if (action === 'moveHead' && position <= 0) {
       throw new Error('This commit cannot move farther toward HEAD.');
     }
-    const upstream = action === 'squash' ? details.parents[0] : hash;
-    const upstreamDetails = action === 'squash' && upstream ? await this.commitDetails(root, upstream) : undefined;
+    const combinesWithParent = action === 'squash' || action === 'fixup';
+    const upstream = combinesWithParent ? details.parents[0] : hash;
+    const upstreamDetails = combinesWithParent && upstream ? await this.commitDetails(root, upstream) : undefined;
     const parentNeighbor = action === 'moveParent' ? await this.commitDetails(root, firstParent[position + 1]!) : undefined;
-    const rebaseBase = action === 'squash'
+    const rebaseBase = combinesWithParent
       ? upstreamDetails?.parents[0]
       : action === 'moveParent'
         ? parentNeighbor?.parents[0]
@@ -396,12 +397,29 @@ export class GitService {
     }
   }
 
-  async rebaseState(root: string): Promise<'rebase' | undefined> {
+  async rebaseState(root: string, signal?: AbortSignal): Promise<'rebase' | undefined> {
     const paths = await Promise.all([
-      this.run(root, ['rev-parse', '--git-path', 'rebase-merge']),
-      this.run(root, ['rev-parse', '--git-path', 'rebase-apply'])
+      this.run(root, ['rev-parse', '--git-path', 'rebase-merge'], signal),
+      this.run(root, ['rev-parse', '--git-path', 'rebase-apply'], signal)
     ]);
     return paths.some(value => existsSync(path.resolve(root, value.trim()))) ? 'rebase' : undefined;
+  }
+
+  async operationState(
+    root: string,
+    signal?: AbortSignal
+  ): Promise<'rebase' | 'merge' | 'cherry-pick' | 'revert' | undefined> {
+    if (await this.rebaseState(root, signal)) return 'rebase';
+    const markers = [
+      ['merge', 'MERGE_HEAD'],
+      ['cherry-pick', 'CHERRY_PICK_HEAD'],
+      ['revert', 'REVERT_HEAD']
+    ] as const;
+    for (const [operation, marker] of markers) {
+      const value = await this.run(root, ['rev-parse', '--git-path', marker], signal);
+      if (existsSync(path.resolve(root, value.trim()))) return operation;
+    }
+    return undefined;
   }
 
   async rebaseContinue(root: string): Promise<void> {
@@ -411,6 +429,16 @@ export class GitService {
 
   async rebaseAbort(root: string): Promise<void> {
     await this.run(root, ['rebase', '--abort']);
+    this.invalidate(root);
+  }
+
+  async continueOperation(root: string, operation: 'rebase' | 'merge' | 'cherry-pick' | 'revert'): Promise<void> {
+    await this.run(root, ['-c', 'core.editor=true', operation, '--continue']);
+    this.invalidate(root);
+  }
+
+  async abortOperation(root: string, operation: 'rebase' | 'merge' | 'cherry-pick' | 'revert'): Promise<void> {
+    await this.run(root, [operation, '--abort']);
     this.invalidate(root);
   }
 
@@ -451,14 +479,38 @@ export class GitService {
     return this.run(root, ['show', `${hash}:${slash(relativePath)}`]);
   }
 
+  async fileAtIndex(root: string, relativePath: string): Promise<string> {
+    safeRepositoryPath(root, relativePath);
+    return this.run(root, ['show', `:${slash(relativePath)}`]);
+  }
+
+  async latestFileRevision(root: string, relativePath: string): Promise<string | undefined> {
+    safeRepositoryPath(root, relativePath);
+    const output = await this.run(root, ['log', '-1', '--follow', '--format=%H', '--', slash(relativePath)]);
+    return output.trim() || undefined;
+  }
+
+  async fileRevisions(root: string, relativePath: string, limit = 300): Promise<string[]> {
+    safeRepositoryPath(root, relativePath);
+    const output = await this.run(root, [
+      'log',
+      '--follow',
+      `--max-count=${limit}`,
+      '--format=%H',
+      '--',
+      slash(relativePath)
+    ]);
+    return output.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  }
+
   async checkout(root: string, ref: string): Promise<void> {
     assertRef(ref);
     await this.run(root, ['checkout', ref]);
   }
 
-  async refs(root: string): Promise<{ branches: string[]; remotes: string[]; tags: string[] }> {
+  async refs(root: string, signal?: AbortSignal): Promise<{ branches: string[]; remotes: string[]; tags: string[] }> {
     const read = async (prefix: string): Promise<string[]> => {
-      const output = await this.run(root, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', prefix]);
+      const output = await this.run(root, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', prefix], signal);
       return output.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
     };
     const [branches, remotes, tags] = await Promise.all([
@@ -469,12 +521,59 @@ export class GitService {
     return { branches, remotes, tags };
   }
 
-  async status(root: string): Promise<WorkingTreeStatus> {
-    return parseStatus(await this.run(root, ['status', '--porcelain=v2', '--branch', '-z']));
+  async status(root: string, signal?: AbortSignal): Promise<WorkingTreeStatus> {
+    return parseStatus(await this.run(root, ['status', '--porcelain=v2', '--branch', '-z'], signal));
   }
 
   async fetch(root: string): Promise<void> {
     await this.run(root, ['fetch', '--all', '--prune']);
+  }
+
+  async pull(root: string): Promise<void> {
+    await this.run(root, ['pull', '--ff-only']);
+    this.invalidate(root);
+  }
+
+  async push(root: string, setUpstream = false): Promise<void> {
+    const args = ['push'];
+    if (setUpstream) {
+      const branch = await this.currentBranch(root);
+      if (/^[0-9a-f]{7,40}$/i.test(branch)) throw new Error('A detached HEAD cannot be published.');
+      args.push('--set-upstream', 'origin', branch);
+    }
+    await this.run(root, args);
+    this.invalidate(root);
+  }
+
+  async merge(root: string, ref: string): Promise<void> {
+    assertRef(ref);
+    await this.run(root, ['merge', '--no-edit', ref]);
+    this.invalidate(root);
+  }
+
+  async rebaseBranch(root: string, ref: string): Promise<void> {
+    assertRef(ref);
+    await this.run(root, ['rebase', ref]);
+    this.invalidate(root);
+  }
+
+  async revert(root: string, hash: string): Promise<void> {
+    assertRevision(hash);
+    await this.run(root, ['revert', '--no-edit', hash]);
+    this.invalidate(root);
+  }
+
+  async resetTo(root: string, hash: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
+    assertRevision(hash);
+    await this.run(root, ['reset', `--${mode}`, hash]);
+    this.invalidate(root);
+  }
+
+  async undoCommit(root: string): Promise<void> {
+    const status = await this.status(root);
+    if (status.files.length) throw new Error('Commit or stash working changes before undoing the last commit.');
+    await this.run(root, ['reset', '--mixed', 'HEAD^']);
+    this.invalidate(root);
   }
 
   async stage(root: string, relativePath: string): Promise<void> {
@@ -487,6 +586,17 @@ export class GitService {
 
   async discard(root: string, relativePath: string): Promise<void> {
     await this.run(root, ['restore', '--worktree', '--', slash(relativePath)]);
+  }
+
+  async resolveConflict(root: string, relativePath: string, resolution: 'current' | 'incoming' | 'delete'): Promise<void> {
+    safeRepositoryPath(root, relativePath);
+    if (resolution === 'delete') {
+      await this.run(root, ['rm', '--', slash(relativePath)]);
+    } else {
+      await this.run(root, ['checkout', resolution === 'current' ? '--ours' : '--theirs', '--', slash(relativePath)]);
+      await this.run(root, ['add', '--', slash(relativePath)]);
+    }
+    this.invalidate(root);
   }
 
   async commit(root: string, message: string): Promise<void> {
@@ -509,8 +619,8 @@ export class GitService {
     await this.run(root, ['cherry-pick', hash]);
   }
 
-  async listWorktrees(root: string): Promise<Worktree[]> {
-    return parseWorktrees(await this.run(root, ['worktree', 'list', '--porcelain', '-z']));
+  async listWorktrees(root: string, signal?: AbortSignal): Promise<Worktree[]> {
+    return parseWorktrees(await this.run(root, ['worktree', 'list', '--porcelain', '-z'], signal));
   }
 
   async addWorktree(root: string, destination: string, ref?: string): Promise<void> {
@@ -526,12 +636,12 @@ export class GitService {
     await this.run(root, ['worktree', 'remove', destination]);
   }
 
-  async listStashes(root: string): Promise<Stash[]> {
+  async listStashes(root: string, signal?: AbortSignal): Promise<Stash[]> {
     const output = await this.run(root, [
       'stash',
       'list',
       `--format=%H${FIELD}%at${FIELD}%gd${FIELD}%s`
-    ]);
+    ], signal);
     return parseStashes(output);
   }
 
