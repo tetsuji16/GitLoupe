@@ -3,6 +3,9 @@
 .gitignore
 src/**
 test/**
+scripts/**
+dist-test/**
+tsconfig.extension-test.json
 **/*.map
 tsconfig.json
 esbuild.mjs

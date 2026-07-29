@@ -1,4 +1,4 @@
-export type RebaseTodoAction = 'reword' | 'squash' | 'drop';
+export type RebaseTodoAction = 'reword' | 'squash' | 'fixup' | 'drop';
 export type RebaseReorderAction = 'moveParent' | 'moveHead';
 
 export function rewriteRebaseTodo(todo: string, action: RebaseTodoAction, target: string): string {

@@ -26,6 +26,14 @@ test('rewriteRebaseTodo applies reword, squash, and drop to an exact commit', ()
   assert.match(reorderRebaseTodo(todo, 'moveHead', 'def456000'), /pick 789abc third\npick def456 second/);
 });
 
+test('rewriteRebaseTodo applies fixup without changing adjacent commits', () => {
+  const todo = 'pick aaaaaaa parent\npick bbbbbbb fix me\npick ccccccc newest\n';
+  assert.equal(
+    rewriteRebaseTodo(todo, 'fixup', 'bbbbbbb'),
+    'pick aaaaaaa parent\nfixup bbbbbbb fix me\npick ccccccc newest\n'
+  );
+});
+
 test('sequence and message editors drive a real interactive rebase', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'gitloupe-rewrite-test-'));
   const sequence = path.join(root, 'sequence.cjs');

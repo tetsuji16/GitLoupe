@@ -1,0 +1,42 @@
+# Changelog
+
+## 0.2.1
+
+### Added
+
+- Local/private-network Ollama support for commit messages and change explanations
+- Pull, push, publish, merge, branch rebase, revert, reset, and undo actions
+- Staged-only, unstaged-only, and combined working-file diffs
+- Merge, rebase, cherry-pick, and revert conflict continuation controls
+- Manual current, incoming, and delete conflict resolutions
+- Multi-file stage, unstage, stash, discard, and multi-diff workflow
+- Whole-file blame annotations and previous-revision comparison
+- Branch-focused graph scope
+- Launchpad pagination, transient-request retries, pinning, and snoozing
+- Extension Host smoke tests, CI matrix, dependency audit, and Dependabot
+
+### Security
+
+- Restrict trusted blame hover commands to an explicit allowlist
+- Escape untrusted author, email, and commit-message Markdown
+- Reject Ollama endpoints outside loopback and private IP networks
+- Store optional Ollama gateway credentials in VS Code SecretStorage
+
+### Performance
+
+- Cancel superseded full graph Git processes
+- Watch active graph worktrees for live WIP refresh
+- Skip offscreen graph row rendering with CSS content visibility
+
+### Fixed
+
+- Allow local Ollama model discovery before a model has been selected
+
+## 0.2.0
+
+- Added the Graph Workbench, Visual History, worktrees, stashes, blame, and
+  the provider-neutral Pull Request Launchpad.
+
+## 0.1.0
+
+- Initial Marketplace release.

@@ -3,17 +3,19 @@ import { GitService } from './git.js';
 import { GitContentProvider, GraphPanel, RepositoryViewProvider, showFileHistory } from './ui.js';
 import { BlameController, BlameHoverProvider, BlameCodeLensProvider } from './blame.js';
 import { LaunchpadPanel } from './launchpad.js';
+import { OllamaController } from './ollama.js';
 
 const errorMessageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export function activate(context: vscode.ExtensionContext): void {
   const git = new GitService();
-  const graph = new GraphPanel(context.extensionUri, git);
+  const ollama = new OllamaController(context.secrets, git);
+  const graph = new GraphPanel(context.extensionUri, git, ollama);
   const repositoryView = new RepositoryViewProvider(context.extensionUri, git, () => graph.show());
   const launchpad = new LaunchpadPanel(context.extensionUri, git, async () => {
     await Promise.all([graph.refresh(), repositoryView.refresh()]);
-  });
+  }, context.globalState);
   const blame = new BlameController(git, graph);
   const gitWatcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,packed-refs,refs/**}');
   let refreshTimer: NodeJS.Timeout | undefined;
@@ -46,6 +48,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('gitloupe.refresh', async () => {
       await Promise.all([graph.refresh(), repositoryView.refresh()]);
     }),
+    vscode.commands.registerCommand('gitloupe.manageSelectedFiles', () => runSafely(() => graph.manageSelectedFiles())),
+    vscode.commands.registerCommand('gitloupe.manageWorktree', () => runSafely(() => graph.manageWorktree())),
     vscode.commands.registerCommand(
       'gitloupe.openCommit',
       (args?: { hash?: string; root?: string }) => blame.openCommit(args)
@@ -56,6 +60,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('gitloupe.toggleBlame', () => blame.toggleBlame()),
     vscode.commands.registerCommand('gitloupe.toggleHeatmap', () => blame.toggleHeatmap()),
+    vscode.commands.registerCommand('gitloupe.toggleFileBlame', () => blame.toggleFileBlame()),
+    vscode.commands.registerCommand('gitloupe.diffWithPrevious', () => runSafely(() => blame.diffWithPrevious())),
+    vscode.commands.registerCommand('gitloupe.fileRevisionPrevious', () => runSafely(() => blame.navigateFileRevision('previous'))),
+    vscode.commands.registerCommand('gitloupe.fileRevisionNext', () => runSafely(() => blame.navigateFileRevision('next'))),
+    vscode.commands.registerCommand('gitloupe.ollama.selectModel', () => runSafely(() => ollama.chooseModel())),
+    vscode.commands.registerCommand('gitloupe.ollama.setApiKey', () => runSafely(() => ollama.setApiKey())),
     vscode.commands.registerCommand('gitloupe.openStash', async (args?: { root?: string; ref?: string }) => {
       if (!args?.root || !args.ref) return;
       try {
@@ -126,7 +136,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('gitloupe.blame')) void blame.track();
     }),
-    vscode.workspace.onDidSaveTextDocument(document => blame.invalidate(document.uri.toString()))
+    vscode.workspace.onDidSaveTextDocument(document => {
+      blame.invalidate(document.uri.toString());
+      queueRepositoryRefresh();
+    }),
+    vscode.workspace.onDidCreateFiles(queueRepositoryRefresh),
+    vscode.workspace.onDidDeleteFiles(queueRepositoryRefresh),
+    vscode.workspace.onDidRenameFiles(queueRepositoryRefresh)
   );
 
   void blame.track();
@@ -134,4 +150,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // VS Code disposes registered resources through ExtensionContext.
+}
+
+async function runSafely(action: () => Promise<void>): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    void vscode.window.showErrorMessage(`GitLoupe: ${errorMessageOf(error)}`);
+  }
 }
