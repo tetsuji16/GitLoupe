@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Changed
+
+- Refreshed the Marketplace icon with the Git graph magnifier mark
+
 ## 0.3.0
 
 ### Added

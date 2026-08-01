@@ -2,7 +2,7 @@
   "name": "gitloupe-vscode",
   "displayName": "GitLoupe — Local Git Explorer",
   "description": "A login-free, local-first Git explorer for VS Code",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "resources/gitloupe.png",
   "publisher": "tetsuji16",
   "license": "MIT",
