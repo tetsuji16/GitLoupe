@@ -1,20 +1,46 @@
-# GitLoupe
+# GitLoupe — Local Git Explorer for VS Code
 
 <p align="center">
-  <img src="resources/gitloupe.png" width="128" height="128" alt="GitLoupe icon">
+  <img src="resources/gitloupe.png" width="128" height="128" alt="GitLoupe commit graph and search icon">
 </p>
 
-GitLoupe is a local-first Git explorer for Visual Studio Code. It brings the
-most useful visual workflows commonly associated with paid Git tooling into a
-small MIT-licensed extension that does not require a GitLoupe or GitKraken
-account.
+<p align="center">
+  Explore history, understand changes, and act on your Git repository without leaving VS Code.
+</p>
+
+GitLoupe is a local-first Git workbench for Visual Studio Code. It gives you
+an interactive commit graph, visual file history, authorship insights,
+worktree management, safe history editing, and an optional pull-request
+Launchpad—without requiring a GitLoupe account or sending your Git history to
+a hosted service.
+
+## Why GitLoupe?
+
+- **See the shape of your history.** Browse all local refs in an interactive
+  graph, search commits precisely, compare any two revisions, and inspect
+  changed files in native VS Code diffs.
+- **Act safely.** Stage, commit, stash, create worktrees, cherry-pick, merge,
+  rebase, and rewrite history with confirmations and recovery branches for
+  destructive operations.
+- **Understand code in context.** Use inline blame, CodeLens, revision
+  navigation, and Visual History to see how a file evolved and who changed it.
+- **Keep control of your data.** Core Git operations use your local `git`
+  executable. Provider and AI features are opt-in and explicitly initiated.
+
+## Quick start
+
+1. Install GitLoupe from the VS Code Marketplace.
+2. Open a folder containing a Git repository.
+3. Select the GitLoupe activity-bar icon, then choose **Open Commit Graph**.
+4. Use **Home** for repository and stash actions, and **Inspect** for history
+   and comparison workflows.
 
 ## Features
 
 - Interactive commit graph across all local refs
 - Graph minimap for HEAD, refs, merges, and search results
 - Ctrl/Cmd and Shift multi-selection with endpoint compare and bulk rewrites
-- GitLens-style Graph Workbench with working changes and commit details
+- Graph Workbench with working changes and commit details
 - Stage, unstage, commit, safely discard, and copy changes as patches
 - Staged-only, unstaged-only, and combined diffs for partially staged files
 - Multi-file stage, unstage, stash, discard, and multi-diff actions

@@ -1,6 +1,7 @@
 .github/**
 .vscode/**
 .gitignore
+README.md
 src/**
 test/**
 scripts/**

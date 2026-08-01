@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { GitService } from './git.js';
-import { GitContentProvider, GraphPanel, RepositoryViewProvider, showFileHistory } from './ui.js';
+import { GitContentProvider, GraphPanel, InspectViewProvider, RepositoryViewProvider, WelcomeViewProvider, showFileHistory } from './ui.js';
 import { BlameController, BlameHoverProvider, BlameCodeLensProvider } from './blame.js';
 import { LaunchpadPanel } from './launchpad.js';
 import { OllamaController } from './ollama.js';
@@ -13,6 +13,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const ollama = new OllamaController(context.secrets, git);
   const graph = new GraphPanel(context.extensionUri, git, ollama);
   const repositoryView = new RepositoryViewProvider(context.extensionUri, git, () => graph.show());
+  const welcomeView = new WelcomeViewProvider(() => graph.show());
+  const inspectView = new InspectViewProvider(() => graph.show());
   const launchpad = new LaunchpadPanel(context.extensionUri, git, async () => {
     await Promise.all([graph.refresh(), repositoryView.refresh()]);
   }, context.globalState);
@@ -30,6 +32,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('gitloupe', new GitContentProvider(git)),
     vscode.window.registerWebviewViewProvider(RepositoryViewProvider.viewType, repositoryView),
+    vscode.window.registerWebviewViewProvider(WelcomeViewProvider.viewType, welcomeView),
+    vscode.window.registerWebviewViewProvider(InspectViewProvider.viewType, inspectView),
     gitWatcher,
     new vscode.Disposable(() => {
       if (refreshTimer) clearTimeout(refreshTimer);

@@ -2,7 +2,7 @@
   "name": "gitloupe-vscode",
   "displayName": "GitLoupe — Local Git Explorer",
   "description": "A login-free, local-first Git explorer for VS Code",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "icon": "resources/gitloupe.png",
   "publisher": "tetsuji16",
   "license": "MIT",
@@ -39,7 +39,9 @@
     "onCommand:gitloupe.openFileHistory",
     "onCommand:gitloupe.openRepositoryHistory",
     "onCommand:gitloupe.openLaunchpad",
-    "onView:gitloupe.graphView"
+    "onView:gitloupe.homeView",
+    "onView:gitloupe.welcomeView",
+    "onView:gitloupe.inspectView"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -161,12 +163,12 @@
       "view/title": [
         {
           "command": "gitloupe.openGraph",
-          "when": "view == gitloupe.graphView",
+          "when": "view == gitloupe.homeView",
           "group": "navigation@1"
         },
         {
           "command": "gitloupe.refresh",
-          "when": "view == gitloupe.graphView",
+          "when": "view == gitloupe.homeView",
           "group": "navigation@2"
         }
       ]
@@ -183,8 +185,18 @@
     "views": {
       "gitloupe": [
         {
-          "id": "gitloupe.graphView",
-          "name": "Repository",
+          "id": "gitloupe.welcomeView",
+          "name": "Welcome",
+          "type": "webview"
+        },
+        {
+          "id": "gitloupe.homeView",
+          "name": "Home",
+          "type": "webview"
+        },
+        {
+          "id": "gitloupe.inspectView",
+          "name": "Inspect",
           "type": "webview"
         }
       ]
@@ -276,7 +288,7 @@
     "test:extension": "npm run build && tsc -p tsconfig.extension-test.json && node scripts/run-extension-tests.cjs",
     "benchmark": "node scripts/benchmark.mjs",
     "verify": "npm run check && npm test && npm run build && npm run test:extension && npm run package && npm audit --audit-level=high",
-    "package": "npm run check && npm test && npm run build && vsce package --no-dependencies"
+    "package": "npm run check && npm test && npm run build && vsce package --no-dependencies --readme-path README.marketplace.md"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

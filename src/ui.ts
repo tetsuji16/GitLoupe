@@ -4,6 +4,9 @@ import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction,
 import { graphWorkbenchHtml } from './graphWebview.js';
 import { visualFileHistoryHtml } from './visualHistoryWebview.js';
 import { OllamaController } from './ollama.js';
+import { homeViewHtml } from './homeWebview.js';
+import { inspectViewHtml } from './inspectWebview.js';
+import { welcomeViewHtml } from './welcomeWebview.js';
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
@@ -66,7 +69,7 @@ export class GitContentProvider implements vscode.TextDocumentContentProvider {
 }
 
 export class RepositoryViewProvider implements vscode.WebviewViewProvider {
-  static readonly viewType = 'gitloupe.graphView';
+  static readonly viewType = 'gitloupe.homeView';
   private view?: vscode.WebviewView;
 
   constructor(
@@ -81,6 +84,9 @@ export class RepositoryViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage((message: { type?: string; root?: string; ref?: string }) => {
       if (message?.type === 'openGraph') void this.openGraph();
       else if (message?.type === 'refresh') void this.refresh();
+      else if (message?.type === 'openFileHistory') void vscode.commands.executeCommand('gitloupe.openFileHistory');
+      else if (message?.type === 'openRepositoryHistory') void vscode.commands.executeCommand('gitloupe.openRepositoryHistory');
+      else if (message?.type === 'openLaunchpad') void vscode.commands.executeCommand('gitloupe.openLaunchpad');
       else if (message?.type === 'stashView') void vscode.commands.executeCommand('gitloupe.openStash', { root: message.root, ref: message.ref });
       else if (message?.type === 'stashPop') void vscode.commands.executeCommand('gitloupe.popStash', { root: message.root, ref: message.ref });
       else if (message?.type === 'stashApply') void vscode.commands.executeCommand('gitloupe.applyStash', { root: message.root, ref: message.ref });
@@ -103,7 +109,37 @@ export class RepositoryViewProvider implements vscode.WebviewViewProvider {
       })
     );
     const nonce = createNonce();
-    this.view.webview.html = sidebarHtml(repositories, stashes, nonce);
+    this.view.webview.html = homeViewHtml(repositories, stashes, nonce);
+  }
+}
+
+export class WelcomeViewProvider implements vscode.WebviewViewProvider {
+  static readonly viewType = 'gitloupe.welcomeView';
+
+  constructor(private readonly openGraph: () => Promise<void>) {}
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    view.webview.options = { enableScripts: true };
+    view.webview.html = welcomeViewHtml(createNonce());
+    view.webview.onDidReceiveMessage((message: { type?: string }) => {
+      if (message?.type === 'openGraph') void this.openGraph();
+    });
+  }
+}
+
+export class InspectViewProvider implements vscode.WebviewViewProvider {
+  static readonly viewType = 'gitloupe.inspectView';
+
+  constructor(private readonly openGraph: () => Promise<void>) {}
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    view.webview.options = { enableScripts: true };
+    view.webview.html = inspectViewHtml(createNonce());
+    view.webview.onDidReceiveMessage((message: { type?: string }) => {
+      if (message?.type === 'openGraph') void this.openGraph();
+      else if (message?.type === 'openFileHistory') void vscode.commands.executeCommand('gitloupe.openFileHistory');
+      else if (message?.type === 'openRepositoryHistory') void vscode.commands.executeCommand('gitloupe.openRepositoryHistory');
+    });
   }
 }
 
@@ -1243,32 +1279,6 @@ function fileHistoryHtml(file: string, entries: FileHistoryEntry[], nonce: strin
 </html>`;
 }
 
-function sidebarHtml(repositories: Repository[], stashes: Map<string, Stash[]>, nonce: string): string {
-  const repoRows = repositories.length
-    ? repositories.map(repo => `<div class="repo"><strong>${escapeHtml(repo.name)}</strong><span>${escapeHtml(repo.branch)}</span></div>`).join('')
-    : '<p class="muted">No Git repositories found in this workspace.</p>';
-  const stashEntries = repositories.flatMap(repo =>
-    (stashes.get(repo.root) ?? []).map(stash => ({ ...stash, root: repo.root, repoName: repo.name }))
-  );
-  const stashSection = stashEntries.length
-    ? `<details open class="stashes"><summary>Stashes (${stashEntries.length})</summary>` +
-      stashEntries
-        .map(stash => {
-          const relative = stashRelative(stash.timestamp);
-          const encoded = escapeHtml(`${stash.root}|${stash.ref}`);
-          return `<div class="stash"><div class="stash-title" title="${escapeHtml(stash.ref)}">${escapeHtml(stash.ref)} · ${escapeHtml(stash.message)}</div><div class="stash-meta">${escapeHtml(stash.repoName)} · ${relative}</div><div class="stash-actions"><button data-view="${encoded}">View</button><button data-pop="${encoded}">Pop</button><button data-apply="${encoded}">Apply</button><button data-drop="${encoded}">Drop</button></div></div>`;
-        })
-        .join('') +
-      '</details>'
-    : '<details class="stashes"><summary>Stashes (0)</summary><div class="muted" style="padding:8px 2px">No stashes in this workspace.</div></details>';
-  return `<!doctype html><html><head>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-  <style nonce="${nonce}">${commonCss()}body{padding:10px}.repo{display:flex;justify-content:space-between;padding:8px 2px;border-bottom:1px solid var(--vscode-panel-border)}.repo span,.muted{color:var(--vscode-descriptionForeground)}.stashes{margin-top:14px;border-top:1px solid var(--vscode-panel-border);padding-top:8px}.stashes summary{cursor:pointer;font-weight:600}.stash{padding:8px 2px;border-bottom:1px solid var(--vscode-panel-border)}.stash-title{font-weight:600;overflow-wrap:anywhere}.stash-meta{color:var(--vscode-descriptionForeground);font-size:11px;margin:2px 0 6px}.stash-actions{display:flex;flex-wrap:wrap;gap:4px}.stash-actions button{padding:3px 8px;font-size:11px}button.open{width:100%;margin-top:14px}</style>
-  </head><body>${repoRows}${stashSection}<button id="open" class="open">Open Commit Graph</button><button id="refresh" class="secondary">Refresh</button>
-  <script nonce="${nonce}">const vscode=acquireVsCodeApi();document.getElementById('open').addEventListener('click',()=>vscode.postMessage({type:'openGraph'}));document.getElementById('refresh').addEventListener('click',()=>vscode.postMessage({type:'refresh'}));document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashView',root:b.dataset.view.split('|')[0],ref:b.dataset.view.split('|')[1]})));document.querySelectorAll('[data-pop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashPop',root:b.dataset.pop.split('|')[0],ref:b.dataset.pop.split('|')[1]})));document.querySelectorAll('[data-apply]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashApply',root:b.dataset.apply.split('|')[0],ref:b.dataset.apply.split('|')[1]})));document.querySelectorAll('[data-drop]').forEach(b=>b.addEventListener('click',()=>vscode.postMessage({type:'stashDrop',root:b.dataset.drop.split('|')[0],ref:b.dataset.drop.split('|')[1]})));</script>
-  </body></html>`;
-}
-
 async function showMarkdownDocument(title: string, content: string): Promise<void> {
   const document = await vscode.workspace.openTextDocument({ content, language: 'markdown' });
   await vscode.window.showTextDocument(document, { preview: true });
@@ -1290,16 +1300,6 @@ function commonCss(): string {
 
 function cleanRef(ref: string): string {
   return ref.replace(/^HEAD -> /, '').replace(/^tag: /, '').replace(/^origin\//, '');
-}
-
-function stashRelative(timestamp: number): string {
-  if (!timestamp) return 'unknown';
-  const seconds = Math.max(0, Date.now() / 1000 - timestamp);
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)}d ago`;
-  return new Date(timestamp * 1000).toLocaleDateString();
 }
 
 function createNonce(): string {

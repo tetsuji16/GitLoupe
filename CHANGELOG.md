@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Native Welcome, Home, and Inspect views in the GitLoupe activity-bar container
+- Visual History selection synchronization between the timeline, revision list,
+  and commit details
+- Marketplace-specific product documentation and packaging support
+
+### Changed
+
+- Refreshed the GitHub README with a focused product overview and quick start
+- Refined the GitLoupe icon for light and dark themes with a transparent PNG
+  and theme-aware SVG activity-bar glyph
+
 ## 0.2.1
 
 ### Added
