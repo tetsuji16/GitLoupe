@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+### Changed
+
+- Refined the GitLoupe icon for clearer activity-bar and Marketplace display
+
 ## 0.3.3
 
 ### Changed
