@@ -2,7 +2,14 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { GitService } from './git.js';
 import { launchpadHtml } from './launchpadWebview.js';
-import { GitHubPullRequestProvider, ProviderRepository, PullRequestSummary } from './providers.js';
+import {
+  BitbucketPullRequestProvider,
+  GitHubPullRequestProvider,
+  GitLabMergeRequestProvider,
+  ProviderRepository,
+  PullRequestProvider,
+  PullRequestSummary
+} from './providers.js';
 
 interface LaunchpadItem extends PullRequestSummary {
   root: string;
@@ -20,7 +27,7 @@ export class LaunchpadPanel {
   private items: LaunchpadItem[] = [];
   private abort?: AbortController;
   private account?: string;
-  private provider?: GitHubPullRequestProvider;
+  private githubProvider?: GitHubPullRequestProvider;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -76,14 +83,19 @@ export class LaunchpadPanel {
       ['repo'],
       connect ? { createIfNone: true } : { createIfNone: false }
     );
-    const provider = new GitHubPullRequestProvider(session?.accessToken);
-    this.provider = provider;
+    const providers: PullRequestProvider[] = [
+      new GitHubPullRequestProvider(session?.accessToken),
+      new GitLabMergeRequestProvider(),
+      new BitbucketPullRequestProvider()
+    ];
+    this.githubProvider = providers[0] as GitHubPullRequestProvider;
     this.account = session?.account.label;
     const repositories = await this.git.discoverRepositories();
     const results = await Promise.allSettled(repositories.map(async repository => {
       const remoteUrl = await this.git.remoteUrl(repository.root).catch(() => '');
-      const providerRepository = provider.parseRemote(remoteUrl);
-      if (!providerRepository) return [];
+      const provider = providers.find(candidate => candidate.parseRemote(remoteUrl));
+      const providerRepository = provider?.parseRemote(remoteUrl);
+      if (!provider || !providerRepository) return [];
       const pulls = await provider.listPullRequests(providerRepository, controller.signal);
       return pulls.map(pull => {
         const key = `${pull.repository}#${pull.number}`;
@@ -106,7 +118,7 @@ export class LaunchpadPanel {
       items: this.items,
       account: this.account,
       warning: results.some(result => result.status === 'rejected')
-        ? 'Some repositories could not be loaded. Connect GitHub for private repositories or a higher API rate limit.'
+        ? 'Some repositories could not be loaded. Public GitHub, GitLab, and Bitbucket repositories work without login; private repositories may require their provider integration.'
         : undefined
     });
   }
@@ -115,13 +127,15 @@ export class LaunchpadPanel {
     const item = this.items[index];
     if (!item) return;
     const uri = vscode.Uri.parse(item.url);
-    if (uri.scheme !== 'https' || uri.authority !== 'github.com') throw new Error('Refusing an unexpected provider URL.');
+    const allowedHost: Record<string, string> = { github: 'github.com', gitlab: 'gitlab.com', bitbucket: 'bitbucket.org' };
+    if (uri.scheme !== 'https' || uri.authority !== allowedHost[item.providerId]) throw new Error('Refusing an unexpected provider URL.');
     await vscode.env.openExternal(uri);
   }
 
   private async checkout(index: number): Promise<void> {
     const item = this.items[index];
     if (!item) return;
+    if (item.providerId !== 'github') throw new Error('Checkout is currently available for GitHub pull requests only.');
     const answer = await vscode.window.showWarningMessage(
       `Checkout ${item.repository}#${item.number} into a new local branch?`,
       { modal: true, detail: `Creates gitloupe/pr-${item.number} from the provider pull ref.` },
@@ -138,6 +152,7 @@ export class LaunchpadPanel {
   private async openChanges(index: number): Promise<void> {
     const item = this.items[index];
     if (!item) return;
+    if (item.providerId !== 'github') throw new Error('Changes are currently available for GitHub pull requests only.');
     const head = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Fetching changes for #${item.number}…` },
       () => this.git.fetchPullRequest(item.root, item.number, 'origin', item.base)
@@ -187,7 +202,7 @@ export class LaunchpadPanel {
     event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'
   ): Promise<void> {
     const item = this.items[index];
-    if (!item || !this.provider) return;
+    if (!item || item.providerId !== 'github' || !this.githubProvider) return;
     const body = await vscode.window.showInputBox({
       title: `${event === 'APPROVE' ? 'Approve' : event === 'REQUEST_CHANGES' ? 'Request changes on' : 'Comment on'} ${item.repository}#${item.number}`,
       prompt: event === 'APPROVE' ? 'Optional review summary' : 'Review summary',
@@ -210,7 +225,7 @@ export class LaunchpadPanel {
       name,
       remoteUrl: `https://github.com/${item.repository}.git`
     };
-    await this.provider.submitReview(repository, item.number, event, body.trim());
+    await this.githubProvider.submitReview(repository, item.number, event, body.trim());
     void vscode.window.showInformationMessage(`GitLoupe: Review submitted to ${item.repository}#${item.number}.`);
     await this.load(false);
   }

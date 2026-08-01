@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   messageEditorSource,
   nodeScriptCommand,
+  moveRebaseTodoAfter,
   reorderRebaseTodo,
   rewriteRebaseTodo,
   rewriteRebaseTodoMany,
@@ -24,6 +25,11 @@ test('rewriteRebaseTodo applies reword, squash, and drop to an exact commit', ()
   assert.match(dropped, /^drop 789abc third$/m);
   assert.match(reorderRebaseTodo(todo, 'moveParent', 'def456000'), /pick def456 second\npick abc123 first/);
   assert.match(reorderRebaseTodo(todo, 'moveHead', 'def456000'), /pick 789abc third\npick def456 second/);
+  assert.equal(
+    moveRebaseTodoAfter(todo, '789abc000', 'abc123000'),
+    'pick abc123 first\npick 789abc third\npick def456 second\n'
+  );
+  assert.throws(() => moveRebaseTodoAfter(todo, 'def456000', 'def456000'), /cannot be moved onto itself/);
 });
 
 test('rewriteRebaseTodo applies fixup without changing adjacent commits', () => {
@@ -61,6 +67,19 @@ test('sequence and message editors drive a real interactive rebase', () => {
       GITLOUPE_REBASE_MESSAGE: 'renamed second'
     });
     assert.deepEqual(run(['log', '--format=%s']).split(/\r?\n/), ['third', 'renamed second', 'first']);
+    writeFileSync(path.join(root, 'metadata.txt'), 'independent');
+    run(['add', 'metadata.txt']);
+    run(['commit', '-q', '-m', 'fourth']);
+    const newest = run(['rev-parse', 'HEAD']);
+    const oldest = run(['rev-parse', 'HEAD~3']);
+    run(['rebase', '-i', '--root'], {
+      GIT_SEQUENCE_EDITOR: nodeScriptCommand(sequence),
+      GIT_EDITOR: nodeScriptCommand(editor),
+      GITLOUPE_REBASE_ACTION: 'move',
+      GITLOUPE_REBASE_TARGETS: JSON.stringify([newest]),
+      GITLOUPE_REBASE_AFTER: oldest
+    });
+    assert.deepEqual(run(['log', '--format=%s']).split(/\r?\n/), ['third', 'renamed second', 'fourth', 'first']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

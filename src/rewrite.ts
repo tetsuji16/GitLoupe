@@ -35,17 +35,39 @@ export function reorderRebaseTodo(todo: string, action: RebaseReorderAction, tar
   return lines.join('\n');
 }
 
+/** Moves a commit directly after another commit in Git's oldest-to-newest todo order. */
+export function moveRebaseTodoAfter(todo: string, target: string, after: string): string {
+  const lines = todo.split(/\r?\n/);
+  let source = -1;
+  let destination = -1;
+  for (let index = 0; index < lines.length; index++) {
+    const candidate = /^pick\s+([0-9a-f]+)\s+/.exec(lines[index] ?? '')?.[1];
+    if (!candidate) continue;
+    if (target.startsWith(candidate) || candidate.startsWith(target)) source = index;
+    if (after.startsWith(candidate) || candidate.startsWith(after)) destination = index;
+  }
+  if (source < 0 || destination < 0) throw new Error('A target commit was not present in the rebase plan.');
+  if (source === destination) throw new Error('A commit cannot be moved onto itself.');
+  const [line] = lines.splice(source, 1);
+  const adjustedDestination = source < destination ? destination - 1 : destination;
+  lines.splice(adjustedDestination + 1, 0, line!);
+  return lines.join('\n');
+}
+
 export const sequenceEditorSource = String.raw`
 const fs = require('node:fs');
 const rewriteRebaseTodoMany = ${rewriteRebaseTodoMany.toString()};
 const reorderRebaseTodo = ${reorderRebaseTodo.toString()};
+const moveRebaseTodoAfter = ${moveRebaseTodoAfter.toString()};
 const file = process.argv[2];
 const action = process.env.GITLOUPE_REBASE_ACTION;
 const targets = JSON.parse(process.env.GITLOUPE_REBASE_TARGETS || '[]');
 const todo = fs.readFileSync(file, 'utf8');
 fs.writeFileSync(file, action === 'moveParent' || action === 'moveHead'
   ? reorderRebaseTodo(todo, action, targets[0])
-  : rewriteRebaseTodoMany(todo, action, targets));
+  : action === 'move'
+    ? moveRebaseTodoAfter(todo, targets[0], process.env.GITLOUPE_REBASE_AFTER || '')
+    : rewriteRebaseTodoMany(todo, action, targets));
 `;
 
 export const messageEditorSource = String.raw`

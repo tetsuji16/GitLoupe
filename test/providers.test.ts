@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GitHubPullRequestProvider, parseGitHubRemote } from '../src/providers.js';
+import {
+  BitbucketPullRequestProvider,
+  GitHubPullRequestProvider,
+  GitLabMergeRequestProvider,
+  parseBitbucketRemote,
+  parseGitHubRemote,
+  parseGitLabRemote
+} from '../src/providers.js';
 
 test('parseGitHubRemote supports HTTPS, SCP-style SSH, and ssh URLs', () => {
   for (const remote of [
@@ -15,6 +22,55 @@ test('parseGitHubRemote supports HTTPS, SCP-style SSH, and ssh URLs', () => {
       name: 'codex',
       remoteUrl: remote
     });
+  }
+});
+
+test('parses GitLab groups and Bitbucket Cloud remotes', () => {
+  assert.deepEqual(parseGitLabRemote('git@gitlab.com:group/subgroup/project.git'), {
+    providerId: 'gitlab', host: 'gitlab.com', owner: 'group/subgroup', name: 'project', remoteUrl: 'git@gitlab.com:group/subgroup/project.git'
+  });
+  assert.deepEqual(parseBitbucketRemote('https://bitbucket.org/workspace/project.git'), {
+    providerId: 'bitbucket', host: 'bitbucket.org', owner: 'workspace', name: 'project', remoteUrl: 'https://bitbucket.org/workspace/project.git'
+  });
+});
+
+test('GitLab and Bitbucket providers map public pull requests', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('gitlab.com')) return new Response(JSON.stringify([{
+      iid: 7, title: 'Merge graph', web_url: 'https://gitlab.com/group/project/-/merge_requests/7', author: { username: 'ada' }, source_branch: 'feature', target_branch: 'main', draft: true, updated_at: '2026-01-01T00:00:00Z', labels: ['ui']
+    }]), { status: 200 });
+    return new Response(JSON.stringify({ values: [{
+      id: 8, title: 'Pull graph', links: { html: { href: 'https://bitbucket.org/workspace/project/pull-requests/8' } }, author: { nickname: 'lin' }, source: { branch: { name: 'feature' } }, destination: { branch: { name: 'main' } }, updated_on: '2026-01-02T00:00:00Z'
+    }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const [merge] = await new GitLabMergeRequestProvider().listPullRequests(parseGitLabRemote('https://gitlab.com/group/project.git')!);
+    const [pull] = await new BitbucketPullRequestProvider().listPullRequests(parseBitbucketRemote('https://bitbucket.org/workspace/project.git')!);
+    assert.deepEqual([merge?.providerId, merge?.number, merge?.labels], ['gitlab', 7, ['ui']]);
+    assert.deepEqual([pull?.providerId, pull?.number, pull?.head], ['bitbucket', 8, 'feature']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('GitLab provider follows only validated pagination headers', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requests.push(String(input));
+    const page = new URL(String(input)).searchParams.get('page');
+    return new Response(JSON.stringify(page === '2' ? [] : [{
+      iid: 9, title: 'First page', web_url: 'https://gitlab.com/group/project/-/merge_requests/9', author: { username: 'ada' }, source_branch: 'feature', target_branch: 'main', updated_at: '2026-01-01T00:00:00Z'
+    }]), { status: 200, headers: page === '1' ? { 'x-next-page': '2' } : {} });
+  }) as typeof fetch;
+  try {
+    const merges = await new GitLabMergeRequestProvider().listPullRequests(parseGitLabRemote('https://gitlab.com/group/project.git')!);
+    assert.equal(merges.length, 1);
+    assert.equal(requests.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

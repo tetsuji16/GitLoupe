@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+
+- Added GitHub Sponsors metadata and project funding configuration
+- Refined GitHub and Marketplace documentation for English-speaking users
+
+## 0.3.2
+
+### Added
+
+- Drag-to-reorder commits with guarded interactive rebase and recovery branches
+- Read-only Launchpad discovery for public GitLab merge requests and Bitbucket Cloud pull requests
+
+### Fixed
+
+- Avoid no-op history rewrites and make graph drag handling reliable across webview drag events
+- Follow validated GitLab pagination headers when loading merge requests
+
+## 0.3.1
+
+### Changed
+
+- Refreshed the Marketplace icon with the Git graph magnifier mark
+
+## 0.3.0
+
+### Added
+
+- Native Welcome, Home, and Inspect views in the GitLoupe activity-bar container
+- Visual History selection synchronization between the timeline, revision list,
+  and commit details
+- Marketplace-specific product documentation and packaging support
+
+### Changed
+
+- Refreshed the GitHub README with a focused product overview and quick start
+- Refined the GitLoupe icon for light and dark themes with a transparent PNG
+  and theme-aware SVG activity-bar glyph
+
 ## 0.2.1
 
 ### Added
