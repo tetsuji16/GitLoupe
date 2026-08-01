@@ -294,7 +294,7 @@
     "package": "npm run check && npm test && npm run build && vsce package --no-dependencies --readme-path README.marketplace.md"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.1.2",
     "@types/vscode": "^1.96.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
