@@ -9,8 +9,9 @@ leaving VS Code.
 
 GitLoupe is a local-first Git workbench with an interactive commit graph,
 Visual File History, blame insights, safe history editing, worktrees, stashes,
-and an optional pull-request Launchpad. Core features use your local Git
-installation—no GitLoupe account is required.
+and an optional pull-request Launchpad. Core features use your locally
+installed Git executable—no GitLoupe account, analytics, or background cloud
+synchronization is required.
 
 ## Highlights
 
@@ -22,8 +23,10 @@ installation—no GitLoupe account is required.
   magnitude
 - Inline blame, hover details, CodeLens, heatmap, and revision navigation
 - Worktree management and guarded reword, reorder, squash, fixup, and drop
-  workflows with recovery branches
-- Optional GitHub Pull Request Launchpad and local Ollama assistance
+  workflows; drag-to-reorder history edits create recovery branches
+- Optional Launchpad for public GitHub, GitLab, and Bitbucket Cloud PRs/MRs
+- GitHub PR multi-diff, safe checkout, and review actions
+- Optional local Ollama assistance for commit messages and explanations
 
 ## Start here
 
@@ -37,8 +40,15 @@ installation—no GitLoupe account is required.
 GitLoupe runs core Git actions through your locally installed `git`
 executable. It does not perform analytics or background cloud synchronization.
 Network features are optional and run only when you explicitly open or connect
-a provider workflow. History-rewriting and destructive actions require
-confirmation.
+a provider workflow. GitHub authentication is delegated to VS Code and is used
+only for private GitHub repositories and review actions; public GitLab and
+Bitbucket Cloud discovery is read-only. History-rewriting and destructive
+actions require confirmation.
 
 See the [GitHub repository](https://github.com/tetsuji16/GitLoupe) for full
 documentation, configuration, security notes, and contributing guidance.
+
+## Support GitLoupe
+
+If GitLoupe saves you time, please consider supporting ongoing development via
+[GitHub Sponsors](https://github.com/sponsors/tetsuji16).

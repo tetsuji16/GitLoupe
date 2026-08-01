@@ -5,14 +5,19 @@
 </p>
 
 <p align="center">
-  Explore history, understand changes, and act on your Git repository without leaving VS Code.
+  A local-first Git workbench for exploring history, reviewing changes, and acting safely without leaving VS Code.
 </p>
 
-GitLoupe is a local-first Git workbench for Visual Studio Code. It gives you
-an interactive commit graph, visual file history, authorship insights,
-worktree management, safe history editing, and an optional pull-request
-Launchpad—without requiring a GitLoupe account or sending your Git history to
-a hosted service.
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=tetsuji16.gitloupe-vscode">Install from the VS Code Marketplace</a>
+  · <a href="https://github.com/sponsors/tetsuji16">Sponsor GitLoupe</a>
+</p>
+
+GitLoupe is an independent, local-first Git workbench for Visual Studio Code.
+It combines an interactive commit graph, visual history, authorship insights,
+worktree management, guarded history editing, and an optional provider
+Launchpad. The core experience runs against your local Git repository—no
+GitLoupe account, analytics, or background cloud synchronization is required.
 
 ## Why GitLoupe?
 
@@ -20,12 +25,12 @@ a hosted service.
   graph, search commits precisely, compare any two revisions, and inspect
   changed files in native VS Code diffs.
 - **Act safely.** Stage, commit, stash, create worktrees, cherry-pick, merge,
-  rebase, and rewrite history with confirmations and recovery branches for
-  destructive operations.
+  rebase, and rewrite history. Destructive actions require confirmation; graph
+  drag-to-reorder creates a recovery branch before starting an interactive rebase.
 - **Understand code in context.** Use inline blame, CodeLens, revision
   navigation, and Visual History to see how a file evolved and who changed it.
 - **Keep control of your data.** Core Git operations use your local `git`
-  executable. Provider and AI features are opt-in and explicitly initiated.
+  executable. Provider and local-AI features are opt-in and explicitly initiated.
 
 ## Quick start
 
@@ -65,18 +70,21 @@ a hosted service.
 - Authorship CodeLens at the top of files and on document symbols
 - Recency heatmap in the overview ruler
 - Optional whole-file blame blocks, previous-revision comparison, and forward/back revision navigation
-- Optional provider-neutral Pull Request Launchpad with a GitHub adapter
-- Public PR discovery, native PR multi-diff, browser open, and safe checkout
+- Optional provider-neutral Pull Request Launchpad
+- Public GitHub, GitLab, and Bitbucket Cloud PR/MR discovery
+- GitHub PR multi-diff, browser open, safe checkout, and review submission
 - Launchpad pinning, snoozing, pagination, and transient-network retries
 - Optional local Ollama commit messages and change explanations
 
 The Git core uses your locally installed `git` executable and performs no
 analytics or background cloud synchronization. Opening Launchpad explicitly
-queries GitHub for repositories whose `origin` points to GitHub. Public
-repositories work without authentication. Choosing **Connect GitHub** uses
-VS Code's built-in authentication session for private repositories and
-personalized categories; GitLoupe does not store the token. Git is launched
-with terminal credential prompts disabled.
+queries only providers matching the repository remote: GitHub, GitLab.com, or
+Bitbucket Cloud. Public repositories work without authentication. Choosing
+**Connect GitHub** uses VS Code's built-in authentication session for private
+GitHub repositories, personalized categories, and review submission; GitLoupe
+does not store the token. GitLab and Bitbucket discovery is currently
+read-only and for public cloud repositories. Git is launched with terminal
+credential prompts disabled.
 
 ## Local Ollama
 
@@ -141,3 +149,9 @@ any GitLens source.
 
 See [the GitLens Pro parity review and roadmap](docs/gitlens-pro-parity-plan.md)
 for the adversarial gap analysis, implemented scope, and remaining work.
+
+## Support GitLoupe
+
+GitLoupe is maintained in the open. If it helps your team understand and ship
+Git history with confidence, consider becoming a
+[GitHub Sponsor](https://github.com/sponsors/tetsuji16).

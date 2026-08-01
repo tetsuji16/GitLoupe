@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+
+- Added GitHub Sponsors metadata and project funding configuration
+- Refined GitHub and Marketplace documentation for English-speaking users
+
 ## 0.3.2
 
 ### Added
