@@ -21,6 +21,7 @@ type GraphMessage =
   | { type: 'multiDiff'; base: string; target: string }
   | { type: 'rewrite'; action: RewriteAction; hash: string; subject: string }
   | { type: 'rewriteMany'; action: 'squash' | 'drop'; hashes: string[]; subject: string }
+  | { type: 'reorder'; hash: string; before: string }
   | { type: 'rebaseContinue' }
   | { type: 'rebaseAbort' }
   | { type: 'checkout'; ref: string }
@@ -317,6 +318,9 @@ export class GraphPanel {
           break;
         case 'rewriteMany':
           await this.rewriteMany(message.action, message.hashes, message.subject);
+          break;
+        case 'reorder':
+          await this.reorder(message.hash, message.before);
           break;
         case 'rebaseContinue':
           await this.finishRebase(false);
@@ -617,6 +621,34 @@ export class GraphPanel {
     if (answer !== label) return;
     try {
       const result = await this.git.rewriteCommits(this.selected.root, action, hashes, message);
+      void vscode.window.showInformationMessage(`GitLoupe: History updated. Recovery branch: ${result.backup}`);
+    } catch (error) {
+      if (await this.git.rebaseState(this.selected.root)) {
+        void vscode.window.showErrorMessage(`GitLoupe: Rebase paused. Resolve conflicts in Source Control, then continue or abort. ${errorMessage(error)}`);
+        await vscode.commands.executeCommand('workbench.view.scm');
+      } else {
+        throw error;
+      }
+    }
+    await this.load();
+  }
+
+  private async reorder(hash: string, before: string): Promise<void> {
+    if (!this.selected || hash === before) return;
+    const answer = await vscode.window.showWarningMessage(
+      `Move ${hash.slice(0, 8)} before ${before.slice(0, 8)}?`,
+      {
+        modal: true,
+        detail: 'This rewrites the current branch. GitLoupe creates a gitloupe/backup-* recovery branch first. The working tree must be clean.'
+      },
+      'Move Commit'
+    );
+    if (answer !== 'Move Commit') return;
+    try {
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Reordering commit…' },
+        () => this.git.moveCommitBefore(this.selected!.root, hash, before)
+      );
       void vscode.window.showInformationMessage(`GitLoupe: History updated. Recovery branch: ${result.backup}`);
     } catch (error) {
       if (await this.git.rebaseState(this.selected.root)) {

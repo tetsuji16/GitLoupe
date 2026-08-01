@@ -34,6 +34,7 @@ export interface ComparisonDetails {
 }
 
 export type RewriteAction = 'reword' | 'squash' | 'fixup' | 'drop' | 'moveParent' | 'moveHead';
+type RewritePlanAction = RewriteAction | 'move';
 export const WORKING_TREE = ':working-tree';
 
 export interface Repository {
@@ -363,12 +364,38 @@ export class GitService {
     return this.executeRewritePlan(root, action, targets, rebaseBase, message);
   }
 
+  async moveCommitBefore(root: string, hash: string, before: string): Promise<{ backup: string }> {
+    assertRevision(hash);
+    assertRevision(before);
+    if (hash === before) throw new Error('A commit cannot be moved onto itself.');
+    const status = await this.status(root);
+    if (status.files.length) throw new Error('Commit or stash working changes before rewriting history.');
+    const firstParent = (await this.run(root, ['rev-list', '--first-parent', 'HEAD'])).trim().split(/\r?\n/).filter(Boolean);
+    const source = firstParent.indexOf(hash);
+    const destination = firstParent.indexOf(before);
+    if (source < 0 || destination < 0) throw new Error('Only first-parent commits on the current branch can be reordered.');
+    if (source + 1 === destination) throw new Error('The commit is already in that position.');
+    const [sourceDetails, destinationDetails] = await Promise.all([
+      this.commitDetails(root, hash),
+      this.commitDetails(root, before)
+    ]);
+    if (sourceDetails.parents.length > 1 || destinationDetails.parents.length > 1) {
+      throw new Error('Merge commits cannot be reordered by this workflow.');
+    }
+    const oldest = firstParent[Math.max(source, destination)]!;
+    const base = (await this.commitDetails(root, oldest)).parents[0];
+    await this.ensureLinearRange(root, base);
+    // The graph is newest-first; placing before a row means after it in Git's todo list.
+    return this.executeRewritePlan(root, 'move', [hash], base, undefined, before);
+  }
+
   private async executeRewritePlan(
     root: string,
-    action: RewriteAction,
+    action: RewritePlanAction,
     targets: string[],
     rebaseBase: string | undefined,
-    message?: string
+    message?: string,
+    after?: string
   ): Promise<{ backup: string }> {
     const backup = `gitloupe/backup-${Date.now()}`;
     await this.run(root, ['branch', backup, 'HEAD']);
@@ -387,7 +414,8 @@ export class GitService {
           GIT_EDITOR: nodeScriptCommand(messageEditor),
           GITLOUPE_REBASE_ACTION: action,
           GITLOUPE_REBASE_TARGETS: JSON.stringify(targets),
-          GITLOUPE_REBASE_MESSAGE: message?.trim() ?? ''
+          GITLOUPE_REBASE_MESSAGE: message?.trim() ?? '',
+          GITLOUPE_REBASE_AFTER: after ?? ''
         }
       );
       this.invalidate(root);

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+### Added
+
+- Drag-to-reorder commits with guarded interactive rebase and recovery branches
+- Read-only Launchpad discovery for public GitLab merge requests and Bitbucket Cloud pull requests
+
+### Fixed
+
+- Avoid no-op history rewrites and make graph drag handling reliable across webview drag events
+- Follow validated GitLab pagination headers when loading merge requests
+
 ## 0.3.1
 
 ### Changed
