@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+### Changed
+
+- Replaced the GitLoupe icon with a theme-independent blue and coral mark
+- Added a new GitHub and Marketplace introduction banner
+- Refined the English product description around visual history and safe local workflows
+
 ## 0.3.4
 
 ### Changed

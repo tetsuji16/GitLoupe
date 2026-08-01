@@ -1,11 +1,11 @@
 # GitLoupe — Local Git Explorer for VS Code
 
 <p align="center">
-  <img src="resources/gitloupe.png" width="128" height="128" alt="GitLoupe commit graph and search icon">
+  <img src="resources/gitloupe-hero.png" width="1200" alt="GitLoupe — See history clearly. Act with confidence.">
 </p>
 
 <p align="center">
-  A local-first Git workbench for exploring history, reviewing changes, and acting safely without leaving VS Code.
+  Explore Git history, understand changes, and run everyday repository workflows without leaving VS Code.
 </p>
 
 <p align="center">
@@ -13,11 +13,11 @@
   · <a href="https://github.com/sponsors/tetsuji16">Sponsor GitLoupe</a>
 </p>
 
-GitLoupe is an independent, local-first Git workbench for Visual Studio Code.
-It combines an interactive commit graph, visual history, authorship insights,
-worktree management, guarded history editing, and an optional provider
-Launchpad. The core experience runs against your local Git repository—no
-GitLoupe account, analytics, or background cloud synchronization is required.
+GitLoupe turns your local Git repository into a focused visual workbench. Trace
+branches and merges in an interactive graph, inspect how files evolved, review
+authorship, manage worktrees and stashes, and perform guarded history edits from
+one place. No GitLoupe account, analytics, or background cloud synchronization
+is required.
 
 ## Why GitLoupe?
 
