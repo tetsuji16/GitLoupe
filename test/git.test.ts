@@ -131,10 +131,12 @@ test('countTextLines matches Git numstat semantics for empty and terminated file
 });
 
 test('safeRepositoryPath rejects paths that escape the repository root', () => {
-  const root = 'C:/repos/project';
+  // Use a platform-absolute root so the assertion holds on both Windows and
+  // Linux CI runners (a hardcoded `C:/...` would be treated as relative on Linux).
+  const root = path.resolve('repos', 'project');
   // Inside the repo: allowed (path.resolve normalizes to the OS separator).
-  assert.equal(safeRepositoryPath(root, 'src/file.ts'), path.join('C:/repos/project', 'src/file.ts'));
-  assert.equal(safeRepositoryPath(root, 'nested/dir/../file.ts'), path.join('C:/repos/project', 'nested/file.ts'));
+  assert.equal(safeRepositoryPath(root, 'src/file.ts'), path.join(root, 'src/file.ts'));
+  assert.equal(safeRepositoryPath(root, 'nested/dir/../file.ts'), path.join(root, 'nested/file.ts'));
   // Path traversal escapes the repo: must throw.
   assert.throws(() => safeRepositoryPath(root, '../secrets.txt'));
   assert.throws(() => safeRepositoryPath(root, '../../etc/passwd'));
