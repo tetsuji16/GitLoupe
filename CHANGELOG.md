@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+### Changed
+
+- The commit graph now uses Git's own `git log --graph` column assignment, so lane packing matches GitLens pixel-for-pixel (verified against `git` on linear, merge, diamond, two-branch, octopus, and criss-cross topologies plus random repositories)
+- Switched the graph ordering to `--date-order` (newest first) to match the GitLens commit-graph layout
+- Centralized repository path validation in `security.ts` so file-at-revision and working-tree paths are bounded by the repository root
+- Extracted the graph lane layout into a pure, testable `graphLayout.ts` module injected verbatim into the webview
+
+### Fixed
+
+- `parseStatus` no longer drops the second path of an updated-but-unmerged (`U`) entry
+- Graph columns are parsed correctly even when a commit hash is padded by graph-drawing characters (e.g. `* |   a1b2c3…`)
+
 ## 0.3.5
 
 ### Changed
