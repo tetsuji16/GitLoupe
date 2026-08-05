@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+### Changed
+
+- Bumped build toolchain: TypeScript 7.0.2, `@vscode/test-electron` 3.1.0, `@types/node` 26, and GitHub Actions `checkout`/`setup-node` to v7 (all verified to build, test, and package cleanly)
+
 ## 0.4.0
 
 ### Changed
