@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { countTextLines, parseCommits, parseFileHistory, parseStatus, parseWorktrees } from '../src/parsers.js';
+import path from 'node:path';
+import { countTextLines, parseCommits, parseFileHistory, parseStatus, parseWorktrees, parseCommitColumns } from '../src/parsers.js';
 import { parseGraphSearchQuery } from '../src/search.js';
+import { safeRepositoryPath } from '../src/security.js';
 
 const record = '\x1e';
 const field = '\x1f';
@@ -77,7 +79,10 @@ test('parseStatus handles rename records, paths with spaces, and conflicts', () 
     '# branch.head main',
     '2 R. N... 100644 100644 100644 abc def R100 renamed file.ts',
     'old file.ts',
-    'u UU N... 100644 100644 100644 100644 abc def 123 conflicted file.ts'
+    // Real `git status --porcelain=v2` unmerged ("u") line: same 9 fields as a "1"
+    // line, so the path is at index 8 (NOT 10). The earlier fixture padded it with
+    // two bogus fields, which masked a bug that dropped the path to "".
+    'u UU N... 100644 100644 100644 abc def conflicted file.ts'
   ].join('\0') + '\0';
   const status = parseStatus(output);
   assert.deepEqual(status.files[0], {
@@ -92,6 +97,17 @@ test('parseStatus handles rename records, paths with spaces, and conflicts', () 
   });
   assert.equal(status.files[1]?.path, 'conflicted file.ts');
   assert.equal(status.files[1]?.conflicted, true);
+});
+
+test('parseStatus recovers the path for a real unmerged conflict', () => {
+  // Both sides modified: classic "UU" conflict. Path must not collapse to "".
+  const output = 'u UU N... 100644 100644 100644 deadbeef cafebabe path with space.ts';
+  const status = parseStatus(output);
+  assert.equal(status.files.length, 1);
+  assert.equal(status.files[0]?.path, 'path with space.ts');
+  assert.equal(status.files[0]?.conflicted, true);
+  assert.equal(status.files[0]?.staged, true);
+  assert.equal(status.files[0]?.unstaged, true);
 });
 
 test('parseGraphSearchQuery extracts quoted file and change filters', () => {
@@ -112,4 +128,33 @@ test('countTextLines matches Git numstat semantics for empty and terminated file
   assert.equal(countTextLines(''), 0);
   assert.equal(countTextLines('one\n'), 1);
   assert.equal(countTextLines('one\r\ntwo'), 2);
+});
+
+test('safeRepositoryPath rejects paths that escape the repository root', () => {
+  const root = 'C:/repos/project';
+  // Inside the repo: allowed (path.resolve normalizes to the OS separator).
+  assert.equal(safeRepositoryPath(root, 'src/file.ts'), path.join('C:/repos/project', 'src/file.ts'));
+  assert.equal(safeRepositoryPath(root, 'nested/dir/../file.ts'), path.join('C:/repos/project', 'nested/file.ts'));
+  // Path traversal escapes the repo: must throw.
+  assert.throws(() => safeRepositoryPath(root, '../secrets.txt'));
+  assert.throws(() => safeRepositoryPath(root, '../../etc/passwd'));
+});
+
+test('parseCommitColumns reads the graph column for every commit, even when the hash is preceded by graph chars', () => {
+  // `git log --graph` may pad the commit marker with drawing chars, e.g.
+  // `* |   a1b2c3...` — the hash is not the first whitespace token.
+  const graph = [
+    '* a1b2c3d4e5f6',
+    '| * b2c3d4e5f6a7',
+    '* |   c3d4e5f6a7b8',
+    '|/  ',
+    '* d4e5f6a7b8c3'
+  ].join('\n');
+  const columns = parseCommitColumns(graph);
+  assert.equal(columns.get('a1b2c3d4e5f6'), 0);
+  assert.equal(columns.get('b2c3d4e5f6a7'), 1);
+  assert.equal(columns.get('c3d4e5f6a7b8'), 0);
+  assert.equal(columns.get('d4e5f6a7b8c3'), 0);
+  // Continuation-only lines (`|/`) carry no commit and are ignored.
+  assert.equal(columns.size, 4);
 });

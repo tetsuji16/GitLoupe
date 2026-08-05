@@ -1,3 +1,5 @@
+import { graphState } from './graphLayout.js';
+
 export function graphWorkbenchHtml(nonce: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -10,7 +12,7 @@ export function graphWorkbenchHtml(nonce: string): string {
     button,input,select,textarea{color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,transparent);padding:5px 8px;border-radius:3px;font:inherit}
     button{color:var(--vscode-button-foreground);background:var(--vscode-button-background);cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}button.secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}
     button:disabled{opacity:.5;cursor:default}button:focus,input:focus,select:focus,textarea:focus{outline:1px solid var(--vscode-focusBorder);outline-offset:1px}
-    header{height:48px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--vscode-panel-border)}
+    header{height:48px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--vscode-panel-border);overflow-x:auto;scrollbar-width:thin}header button,header select{flex:0 0 auto}
     header select{min-width:140px}#branch{max-width:190px}#search{flex:1;min-width:150px;max-width:520px}.tracking,.muted{color:var(--vscode-descriptionForeground);font-size:11px}.tracking{white-space:nowrap}
     #loading{width:100%;height:2px;position:fixed;top:48px;z-index:5;background:var(--vscode-progressBar-background);animation:pulse 1s infinite alternate;display:none}@keyframes pulse{from{opacity:.25}to{opacity:1}}
     .wip-bar{height:36px;display:none;align-items:center;gap:7px;padding:4px 10px;border-bottom:1px solid var(--vscode-panel-border);overflow-x:auto}.wip-bar.visible{display:flex}.wip-label{color:var(--vscode-descriptionForeground);font-size:11px;text-transform:uppercase}.wip-pill{border-radius:12px;padding:3px 9px;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);white-space:nowrap}.wip-pill.current{box-shadow:inset 0 0 0 1px var(--vscode-focusBorder)}
@@ -57,12 +59,12 @@ export function graphWorkbenchHtml(nonce: string): string {
     </section>
     <aside id="details"><div class="empty">Select a commit or working changes.</div></aside>
   </main>
-  <script nonce="${nonce}">${graphWorkbenchScript()}</script>
+  <script nonce="${nonce}">${graphWorkbenchScript(graphState.toString())}</script>
 </body>
 </html>`;
 }
 
-function graphWorkbenchScript(): string {
+function graphWorkbenchScript(graphStateSource: string): string {
   return String.raw`
     const vscode=acquireVsCodeApi(),$=id=>document.getElementById(id),viewState=vscode.getState()||{};document.body.classList.toggle('compact-columns',Boolean(viewState.compactColumns));
     let model={commits:[],worktrees:[],repository:null,refs:{branches:[],remotes:[],tags:[]},status:{files:[]},stashes:[]},baseCommits=[],selectedHash='',selectedKind='',activeCommit,selectedHashes=new Set(),selectionAnchor=-1,searchRequest=0,searchTimer,draggedHash='';
@@ -71,7 +73,7 @@ function graphWorkbenchScript(): string {
     const relative=timestamp=>{const seconds=Math.max(0,Date.now()/1000-timestamp);if(seconds<60)return'now';if(seconds<3600)return Math.floor(seconds/60)+'m ago';if(seconds<86400)return Math.floor(seconds/3600)+'h ago';if(seconds<2592000)return Math.floor(seconds/86400)+'d ago';return new Date(timestamp*1000).toLocaleDateString()};
     const cleanRef=ref=>ref.replace(/^HEAD -> /,'').replace(/^tag: /,'');
     const refClass=ref=>ref.startsWith('tag: ')?'tag':(!ref.startsWith('HEAD -> ')&&ref.includes('/')?'remote':'branch');
-    function graphState(commits){const lanes=[];return commits.map(commit=>{const before=lanes.slice();let lane=lanes.indexOf(commit.hash);if(lane<0){lane=lanes.findIndex(value=>!value);if(lane<0)lane=lanes.length}lanes[lane]=commit.parents[0]||'';for(let i=1;i<commit.parents.length;i++){let target=lanes.indexOf(commit.parents[i]);if(target<0){target=lanes.findIndex((value,index)=>index>lane&&!value);if(target<0)target=lanes.length;lanes[target]=commit.parents[i]}}while(lanes.length&&!lanes[lanes.length-1])lanes.pop();return{lane,before,after:lanes.slice(),parents:commit.parents}})}
+    const graphState = ${graphStateSource};
     function graphSvg(state){const x=lane=>12+lane*16;let svg='';state.before.forEach((hash,lane)=>{if(hash)svg+='<path d="M'+x(lane)+' 0V18" stroke="'+colors[lane%colors.length]+'"/>'});state.after.forEach((hash,lane)=>{if(hash)svg+='<path d="M'+x(lane)+' 18V36" stroke="'+colors[lane%colors.length]+'"/>'});state.parents.slice(1).forEach(parent=>{const target=state.after.indexOf(parent);if(target>=0)svg+='<path d="M'+x(state.lane)+' 18 C'+x(state.lane)+' 27 '+x(target)+' 9 '+x(target)+' 36" stroke="'+colors[target%colors.length]+'"/>'});svg+='<circle cx="'+x(state.lane)+'" cy="18" r="4.5" fill="'+colors[state.lane%colors.length]+'" stroke="var(--vscode-editor-background)" stroke-width="2"/>';return'<svg class="graph" viewBox="0 0 112 36" preserveAspectRatio="xMinYMid meet" fill="none" stroke-width="2">'+svg+'</svg>'}
     function terms(raw){return raw.match(/(?:[^\s"]+|"[^"]*")+/g)||[]}
     function deepSearch(raw){return terms(raw).some(term=>/^(file|change):/i.test(term))}

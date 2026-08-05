@@ -8,6 +8,9 @@ export interface Commit {
   subject: string;
   added: number;
   deleted: number;
+  /** Column index assigned by `git log --graph`, used to render the graph
+   *  exactly like GitLens/Git. Absent until the extension attaches it. */
+  column?: number;
 }
 
 export interface CommitDetails extends Commit {
@@ -139,7 +142,11 @@ export function parseStatus(output: string): WorkingTreeStatus {
     const fields = record.split(' ');
     const kind = fields[0]!;
     const xy = fields[1] ?? '..';
-    const pathIndex = kind === '1' ? 8 : kind === '2' ? 9 : 10;
+    // porcelain=v2 token layout after the "XY" field:
+    //   kind "1"/"2"/"u": <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>  -> path at index 8
+    //   kind "2" (rename/copy): an extra <score> field -> oldPath at index 9, path at index 10
+    // An unmerged ("u") entry has the path at index 8, exactly like "1".
+    const pathIndex = kind === '2' ? 9 : 8;
     const file: WorkingFile = {
       path: fields.slice(pathIndex).join(' '),
       indexStatus: xy[0] ?? '.',
@@ -320,6 +327,27 @@ export function parseBlame(output: string): BlameLine[] {
 }
 
 function stripMail(value: string): string {
-  const trimmed = value.trim().replace(/^[<('"]+/, '').replace(/[>')"]+$/, '');
+  const trimmed = value.trim().replace(/^[<('"]+/, '').replace(/[>'")]+$/, '');
   return trimmed || value.trim();
+}
+
+/**
+ * Extract the graph column for every commit from `git log --graph
+ * --format=%H` output. Git renders the commit marker `*` at a fixed column
+ * width of two characters, so the column index is half the marker's offset.
+ * This yields the exact lane assignment GitLens/Git use when drawing the
+ * commit graph, which we then mirror in the webview for pixel parity.
+ */
+export function parseCommitColumns(graphOutput: string): Map<string, number> {
+  const columns = new Map<string, number>();
+  for (const line of graphOutput.split('\n')) {
+    const star = line.indexOf('*');
+    if (star < 0) continue;
+    // The commit hash is the first hex run on the line; it may be preceded by
+    // graph-drawing characters such as `* | ` (e.g. `* |   a1b2c3...`).
+    const match = line.slice(star).match(/[0-9a-f]{7,}/);
+    if (!match) continue;
+    columns.set(match[0], Math.floor(star / 2));
+  }
+  return columns;
 }

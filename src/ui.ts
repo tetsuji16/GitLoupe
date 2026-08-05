@@ -4,6 +4,7 @@ import { CommitDetails, FileHistoryEntry, GitService, Repository, RewriteAction,
 import { graphWorkbenchHtml } from './graphWebview.js';
 import { visualFileHistoryHtml } from './visualHistoryWebview.js';
 import { OllamaController } from './ollama.js';
+import { safeRepositoryPath } from './security.js';
 import { homeViewHtml } from './homeWebview.js';
 import { inspectViewHtml } from './inspectWebview.js';
 import { welcomeViewHtml } from './welcomeWebview.js';
@@ -1358,11 +1359,6 @@ function errorMessage(error: unknown): string {
 }
 
 function safeWorkingPath(root: string, relative: string): string {
-  const absolute = path.resolve(root, relative);
-  const normalizedRoot = path.resolve(root) + path.sep;
-  const normalize = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value;
-  if (!normalize(absolute).startsWith(normalize(normalizedRoot))) {
-    throw new Error('The requested file is outside of the selected repository.');
-  }
-  return absolute;
+  // Delegate to the shared, unit-tested boundary check in security.ts.
+  return safeRepositoryPath(root, relative);
 }

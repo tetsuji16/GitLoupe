@@ -11,6 +11,7 @@ import {
   countTextLines,
   FileHistoryEntry,
   parseBlame,
+  parseCommitColumns,
   parseCommits,
   parseFileHistory,
   parseStatus,
@@ -22,6 +23,7 @@ import {
 } from './parsers.js';
 import { parseGraphSearchQuery } from './search.js';
 import { messageEditorSource, nodeScriptCommand, sequenceEditorSource } from './rewrite.js';
+import { safeRepositoryPath } from './security.js';
 
 export type { Commit, CommitDetails, FileHistoryEntry, Stash, WorkingFile, WorkingTreeStatus, Worktree } from './parsers.js';
 
@@ -179,12 +181,12 @@ export class GitService {
       const output = await this.run(root, [
         'log',
         '--all',
-        '--topo-order',
+        '--date-order',
         `--max-count=${limit}`,
         `--format=${RECORD}${COMMIT_FORMAT}`,
         '--numstat'
       ], signal);
-      return parseCommits(output);
+      return this.withColumns(root, parseCommits(output), limit, signal);
     } catch (error) {
       // An initialized repository with an unborn branch has no graph yet.
       if (error instanceof GitError && /does not have any commits|bad revision|unknown revision/i.test(error.stderr)) {
@@ -192,6 +194,32 @@ export class GitService {
       }
       throw error;
     }
+  }
+
+  /** Attach the exact `git log --graph` column to each commit so the webview
+   *  can render the graph with the same lane packing GitLens/Git use. */
+  private async withColumns(root: string, commits: Commit[], limit: number, signal?: AbortSignal): Promise<Commit[]> {
+    if (!commits.length) return commits;
+    try {
+      const graphOutput = await this.run(root, [
+        'log',
+        '--all',
+        '--date-order',
+        `--max-count=${limit}`,
+        '--graph',
+        '--no-color',
+        '--format=%H'
+      ], signal);
+      const columns = parseCommitColumns(graphOutput);
+      for (const commit of commits) {
+        const column = columns.get(commit.hash);
+        if (column !== undefined) commit.column = column;
+      }
+    } catch {
+      // Column assignment is a visual nicety; if git graph fails, fall back to
+      // the layout algorithm already used by the webview.
+    }
+    return commits;
   }
 
   async searchGraph(root: string, query: string, limit: number, signal?: AbortSignal): Promise<Commit[]> {
@@ -203,15 +231,32 @@ export class GitService {
     const args = [
       'log',
       '--all',
-      '--topo-order',
+      '--date-order',
       `--max-count=${limit}`,
       `--format=${RECORD}${COMMIT_FORMAT}`,
       '--numstat',
       ...search.changes.map(value => `-S${value}`)
     ];
     if (search.files.length) args.push('--', ...search.files.map(slash));
+    const columnArgs = [
+      'log',
+      '--all',
+      '--date-order',
+      `--max-count=${limit}`,
+      '--graph',
+      '--no-color',
+      '--format=%H',
+      ...search.changes.map(value => `-S${value}`)
+    ];
+    if (search.files.length) columnArgs.push('--', ...search.files.map(slash));
     try {
       const commits = parseCommits(await this.run(root, args, signal));
+      const graphOutput = await this.run(root, columnArgs, signal);
+      const columns = parseCommitColumns(graphOutput);
+      for (const commit of commits) {
+        const column = columns.get(commit.hash);
+        if (column !== undefined) commit.column = column;
+      }
       this.searchCache.set(cacheKey, { expires: Date.now() + 15_000, commits });
       while (this.searchCache.size > 20) {
         const oldest = this.searchCache.keys().next().value as string | undefined;
@@ -504,6 +549,10 @@ export class GitService {
 
   async fileAtRevision(root: string, hash: string, relativePath: string): Promise<string> {
     assertRevisionOrRef(hash);
+    // Mirror every other read sink: reject paths that escape the repository
+    // before handing them to `git show`, so a crafted revision URI cannot
+    // read files outside the working tree.
+    safeRepositoryPath(root, relativePath);
     return this.run(root, ['show', `${hash}:${slash(relativePath)}`]);
   }
 
@@ -782,11 +831,4 @@ function slash(value: string): string {
 
 function normalizeKey(value: string): string {
   return process.platform === 'win32' ? value.toLowerCase() : value;
-}
-
-function safeRepositoryPath(root: string, relative: string): string {
-  const absolute = path.resolve(root, relative);
-  const prefix = path.resolve(root) + path.sep;
-  if (!normalizeKey(absolute).startsWith(normalizeKey(prefix))) throw new Error('Path is outside the repository.');
-  return absolute;
 }
