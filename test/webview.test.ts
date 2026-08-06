@@ -128,3 +128,33 @@ test('graphState keeps every parent edge across many random DAGs', () => {
     });
   }
 });
+
+test('graphState fallback allocator ships inside the webview script', () => {
+  // Regression: when commits lack a `column` (git --graph columns absent),
+  // graphState falls back to allocateLanes. allocateLanes must be defined in
+  // the webview's inline script, so its source has to be captured by
+  // graphState.toString(). If it is not, the graph throws
+  // "allocateLanes is not defined" at runtime in the webview.
+  const source = graphState.toString();
+  assert.ok(source.includes('allocateLanes'), 'allocateLanes must be inlined into graphState.toString() for the webview');
+
+  const html = graphWorkbenchHtml('test-nonce');
+  assert.ok(/allocateLanes/.test(html), 'the webview script must contain allocateLanes');
+
+  // And the fallback must actually compute lanes without throwing.
+  const commits: GraphCommit[] = [
+    { hash: 'a', parents: [] },
+    { hash: 'b', parents: ['a'] },
+    { hash: 'c', parents: ['b'] },
+    { hash: 'm', parents: ['a', 'c'] }
+  ];
+  assert.doesNotThrow(() => graphState(commits));
+  const states = graphState(commits);
+  assert.equal(states.length, commits.length);
+  // Every parent edge is represented in `after`.
+  states.forEach((state, i) => {
+    for (const parent of commits[i]!.parents) {
+      assert.ok(state.after.includes(parent), `parent ${parent} of ${commits[i]!.hash} missing in fallback lane`);
+    }
+  });
+});

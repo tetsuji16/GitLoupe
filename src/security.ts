@@ -20,11 +20,13 @@ export function isPrivateOllamaEndpoint(value: string): boolean {
   const family = net.isIP(host);
   if (family === 4) {
     const octets = host.split('.').map(Number);
-    return octets[0] === 127 ||
-      octets[0] === 10 ||
-      (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) ||
-      (octets[0] === 192 && octets[1] === 168) ||
-      (octets[0] === 169 && octets[1] === 254);
+    const a = octets[0] ?? 0;
+    const b = octets[1] ?? 0;
+    return a === 127 ||
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254);
   }
   return family === 6 && (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe8') || host.startsWith('fe9') || host.startsWith('fea') || host.startsWith('feb'));
 }

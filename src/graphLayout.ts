@@ -52,29 +52,31 @@ export function graphState(commits: GraphCommit[]): GraphState[] {
     while (after.length && !after[after.length - 1]) after.pop();
     return { lane, before, after, parents: commit.parents };
   });
-}
 
-/** Self-contained fallback allocator (used only when git columns are absent). */
-function allocateLanes(commits: GraphCommit[]): GraphState[] {
-  const lanes: string[] = [];
-  return commits.map(commit => {
-    const before = lanes.slice();
-    let lane = lanes.indexOf(commit.hash);
-    if (lane < 0) {
-      lane = lanes.findIndex(value => !value);
-      if (lane < 0) lane = lanes.length;
-    }
-    lanes[lane] = commit.parents[0] || '';
-    for (let i = 1; i < commit.parents.length; i++) {
-      const parent = commit.parents[i] ?? '';
-      let target = lanes.indexOf(parent);
-      if (target < 0) {
-        target = lanes.findIndex((value, index) => index > lane && !value);
-        if (target < 0) target = lanes.length;
-        lanes[target] = parent;
+  /** Self-contained fallback allocator (used only when git columns are absent).
+   *  Defined inside `graphState` so its source is captured by
+   *  `graphState.toString()` and ships inside the webview's inline script. */
+  function allocateLanes(items: GraphCommit[]): GraphState[] {
+    const lanes: string[] = [];
+    return items.map(commit => {
+      const before = lanes.slice();
+      let lane = lanes.indexOf(commit.hash);
+      if (lane < 0) {
+        lane = lanes.findIndex(value => !value);
+        if (lane < 0) lane = lanes.length;
       }
-    }
-    while (lanes.length && !lanes[lanes.length - 1]) lanes.pop();
-    return { lane, before, after: lanes.slice(), parents: commit.parents };
-  });
+      lanes[lane] = commit.parents[0] || '';
+      for (let i = 1; i < commit.parents.length; i++) {
+        const parent = commit.parents[i] ?? '';
+        let target = lanes.indexOf(parent);
+        if (target < 0) {
+          target = lanes.findIndex((value, index) => index > lane && !value);
+          if (target < 0) target = lanes.length;
+          lanes[target] = parent;
+        }
+      }
+      while (lanes.length && !lanes[lanes.length - 1]) lanes.pop();
+      return { lane, before, after: lanes.slice(), parents: commit.parents };
+    });
+  }
 }
