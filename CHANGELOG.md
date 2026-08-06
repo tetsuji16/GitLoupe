@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.4.2
-
-### Fixed
-
-- Commit detail panel no longer clears when the commit graph reloads. Previously, selecting a commit just before the async graph payload arrived left the detail panel blank on the first click and only rendered on the second click. The graph view now preserves the selection across reloads and re-requests the selected commit, and `sendCommit` falls back to the first repository when no repository is explicitly selected.
-
 ## 0.4.1
 
 ### Changed
