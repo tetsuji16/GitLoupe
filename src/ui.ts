@@ -504,9 +504,8 @@ export class GraphPanel {
   }
 
   private async sendCommit(hash: string): Promise<void> {
-    const repo = this.selected ?? this.repositories[0];
-    if (!repo) return;
-    const details = await this.git.commitDetails(repo.root, hash);
+    if (!this.selected) return;
+    const details = await this.git.commitDetails(this.selected.root, hash);
     await this.send({ type: 'commit', commit: details });
   }
 
