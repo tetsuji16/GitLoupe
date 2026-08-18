@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+### Changed
+
+- First Marketplace publication of GitLoupe (the automated `publish-marketplace.yml` workflow now bumps the version so `vsce publish` actually runs; previously the version was unchanged on the publishing commit and the publish step was skipped)
+
 ## 0.4.1
 
 ### Changed
