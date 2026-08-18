@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+### Changed
+
+- Bumped version so the automated Marketplace publish workflow actually runs `vsce publish` (the version-gate requires the published commit to differ in version from its parent; the prior 0.4.2 bump was paired with a CI audit failure and a subsequent non-versioning fix commit, which both left the publish step skipped)
+
 ## 0.4.2
 
 ### Changed
