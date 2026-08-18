@@ -1,6 +1,6 @@
 {
   "name": "gitloupe-explorer",
-  "displayName": "GitLoupe — Local Git Explorer",
+  "displayName": "GitLoupe by tetsuji16",
   "description": "Explore Git history, review changes, and rewrite safely—locally in VS Code",
   "version": "0.4.5",
   "icon": "resources/gitloupe.png",

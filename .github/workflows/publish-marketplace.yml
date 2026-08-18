@@ -1,5 +1,12 @@
 name: Publish to VS Code Marketplace
 
+# Publish on every push to main. The version-gate that previously only
+# published when package.json's version changed was the root cause of GitLoupe
+# never reaching the Marketplace: a CI failure (or a subsequent non-versioning
+# fix commit) left the publish step skipped, and no run ever actually called
+# `vsce publish`. We now always attempt the publish so a real failure (taken
+# name, expired PAT, etc.) is surfaced instead of silently skipped. Re-running
+# `vsce publish` for an already-published version is a harmless no-op error.
 on:
   push:
     branches: [main]
@@ -18,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,15 +34,10 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
-      - id: version
-        shell: bash
-        run: |
-          current="$(node -p "require('./package.json').version")"
-          previous="$(git show HEAD^:package.json 2>/dev/null | node -e "let source=''; process.stdin.on('data', chunk => source += chunk).on('end', () => console.log(JSON.parse(source).version))" || true)"
-          echo "current=${current}" >> "$GITHUB_OUTPUT"
-          echo "publish=$([[ "${current}" != "${previous}" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - name: Publish version ${{ steps.version.outputs.current }}
-        if: steps.version.outputs.publish == 'true'
+      - name: Publish ${{ steps.version.outputs.current }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --no-dependencies --readme-path README.marketplace.md --pat "$VSCE_PAT"
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "Publishing tetsuji16.gitloupe-explorer@${version}"
+          npx vsce publish --no-dependencies --readme-path README.marketplace.md --pat "$VSCE_PAT"
