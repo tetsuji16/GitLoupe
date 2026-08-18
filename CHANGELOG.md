@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.4.4
+## 0.4.5
 
 ### Changed
 
-- Renamed the extension `name` from `gitloupe-vscode` to `gitloupe` (extension id `tetsuji16.gitloupe`). The old `name` was already occupied in the Marketplace, which silently blocked every `vsce publish` attempt — GitLoupe had never actually been published. Also bumped the version so the publish workflow's version-gate fires.
+- Bumped version to 0.4.5 so the publish workflow's version-gate fires after the `gitloupe-explorer` rename.
+
+### Changed
+
+- Renamed the extension `name` to `gitloupe-explorer` (extension id `tetsuji16.gitloupe-explorer`). Both `gitloupe-vscode` and `gitloupe` were already occupied in the Marketplace, which silently blocked every `vsce publish` attempt — GitLoupe had never actually been published.
 
 ## 0.4.3
 

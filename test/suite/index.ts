@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import * as vscode from 'vscode';
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension('tetsuji16.gitloupe');
+  const extension = vscode.extensions.getExtension('tetsuji16.gitloupe-explorer');
   assert.ok(extension, 'GitLoupe extension should be available in the Extension Host.');
   await extension.activate();
   assert.equal(extension.isActive, true);

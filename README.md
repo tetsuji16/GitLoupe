@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=tetsuji16.gitloupe">Install from the VS Code Marketplace</a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=tetsuji16.gitloupe-explorer">Install from the VS Code Marketplace</a>
   · <a href="https://github.com/sponsors/tetsuji16">Sponsor GitLoupe</a>
 </p>
 
