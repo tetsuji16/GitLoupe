@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { countTextLines, parseCommits, parseFileHistory, parseStatus, parseWorktrees, parseCommitColumns } from '../src/parsers.js';
 import { parseGraphSearchQuery } from '../src/search.js';
@@ -140,6 +142,29 @@ test('safeRepositoryPath rejects paths that escape the repository root', () => {
   // Path traversal escapes the repo: must throw.
   assert.throws(() => safeRepositoryPath(root, '../secrets.txt'));
   assert.throws(() => safeRepositoryPath(root, '../../etc/passwd'));
+});
+
+test('safeRepositoryPath rejects a symlink that points outside the repository', async (t) => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'gitloupe-path-'));
+  const root = path.join(parent, 'repo');
+  const outside = path.join(parent, 'outside');
+  await Promise.all([mkdir(root), mkdir(outside)]);
+  try {
+    try {
+      await symlink(outside, path.join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      // Some Windows environments disallow creating links for unprivileged
+      // processes. The production check is still covered on capable hosts.
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+        t.skip('symbolic links are unavailable in this environment');
+        return;
+      }
+      throw error;
+    }
+    assert.throws(() => safeRepositoryPath(root, 'linked/secret.txt'));
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });
 
 test('parseCommitColumns reads the graph column for every commit, even when the hash is preceded by graph chars', () => {

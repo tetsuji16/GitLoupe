@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.5
+
+### Changed
+
+- Bumped version to 0.4.5 so the publish workflow's version-gate fires after the `gitloupe-explorer` rename.
+
+### Changed
+
+- Renamed the extension `name` to `gitloupe-explorer` (extension id `tetsuji16.gitloupe-explorer`). Both `gitloupe-vscode` and `gitloupe` were already occupied in the Marketplace, which silently blocked every `vsce publish` attempt — GitLoupe had never actually been published.
+
+## 0.4.3
+
+### Changed
+
+- Bumped version so the automated Marketplace publish workflow actually runs `vsce publish` (the version-gate requires the published commit to differ in version from its parent; the prior 0.4.2 bump was paired with a CI audit failure and a subsequent non-versioning fix commit, which both left the publish step skipped)
+
+## 0.4.2
+
+### Changed
+
+- First Marketplace publication of GitLoupe (the automated `publish-marketplace.yml` workflow now bumps the version so `vsce publish` actually runs; previously the version was unchanged on the publishing commit and the publish step was skipped)
+
 ## 0.4.1
 
 ### Changed
